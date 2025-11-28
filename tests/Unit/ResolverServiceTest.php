@@ -57,7 +57,7 @@ class ResolverServiceTest extends Unit
             $this->logger
         );
 
-        verify($service)->isInstanceOf(ResolverService::class);
+        verify($service)->instanceOf(ResolverService::class);
     }
 
     public function testConstructorHandlesMissingSettings(): void
@@ -76,7 +76,7 @@ class ResolverServiceTest extends Unit
             $this->logger
         );
 
-        verify($service)->isInstanceOf(ResolverService::class);
+        verify($service)->instanceOf(ResolverService::class);
     }
 
     // =========================================================================
@@ -242,7 +242,7 @@ GRAPHQL;
         );
 
         $schema = $this->invokePrivateMethod($this->service, 'getSchema');
-        verify($schema)->isInstanceOf(\GraphQL\Type\Schema::class);
+        verify($schema)->instanceOf(\GraphQL\Type\Schema::class);
     }
 
     public function testGetSchemaInProductionWithCacheMiss(): void
@@ -257,7 +257,7 @@ GRAPHQL;
                 'set' => function ($identifier, $document) use (&$setWasCalled) {
                     $setWasCalled = true;
                     verify($identifier)->equals('typograph_cached_schema');
-                    verify($document)->isInstanceOf(DocumentNode::class);
+                    verify($document)->instanceOf(DocumentNode::class);
                 },
             ]
         );
@@ -265,7 +265,7 @@ GRAPHQL;
         $this->setupServiceWithSchemaForCacheTest($schemaContent);
 
         $schema = $this->invokePrivateMethod($this->service, 'getSchema');
-        verify($schema)->isInstanceOf(\GraphQL\Type\Schema::class);
+        verify($schema)->instanceOf(\GraphQL\Type\Schema::class);
         verify($setWasCalled)->true();
     }
 
