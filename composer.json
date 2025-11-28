@@ -1,0 +1,39 @@
+{
+  "name": "digicademy/typograph",
+  "type": "typo3-cms-extension",
+  "description": "TYPO3 GraphQL Endpoint Extension",
+  "homepage": "http://www.digitale-akademie.de",
+  "authors": [
+    {
+      "name": "Frodo Podschwadek",
+      "email": "frodo.podschwadek@adwmainz.de",
+      "role": "Developer",
+      "homepage": "http://www.adwmainz.de"
+    }
+  ],
+  "license": [
+    "GPL-2.0+"
+  ],
+  "keywords": [
+    "TYPO3"
+  ],
+  "version": "0.9.0",
+  "require": {
+    "php": "^8.3",
+    "typo3/cms-core": "^12.4",
+    "webonyx/graphql-php": "^15"
+  },
+  "require-dev": {
+    "typo3/coding-standards": "^0.7.1"
+  },
+  "autoload": {
+    "psr-4": {
+      "Digicademy\\TypoGraph\\": "Classes/"
+    }
+  },
+  "extra": {
+    "typo3/cms": {
+      "extension-key": "typograph"
+    }
+  }
+}

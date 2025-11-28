@@ -1,0 +1,20 @@
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+    public: false
+
+  # Where are all our namespaced classes located?
+  Digicademy\TypoGraph\:
+    resource: '../Classes/*'
+
+  # Set up cache for schema data
+  cache.typograph_schema_cache:
+    class: TYPO3\CMS\Core\Cache\Frontend\FrontendInterface
+    factory: ['@TYPO3\CMS\Core\Cache\CacheManager', 'getCache']
+    arguments: ['typograph_schema_cache']
+
+  Digicademy\TypoGraph\Service\ResolverService:
+    arguments:
+      $cache: '@cache.typograph_schema_cache'
+
