@@ -689,10 +689,8 @@ GRAPHQL;
             ]
         );
 
-        $schema = \GraphQL\Utils\BuildSchema::build(
-            \GraphQL\Language\Parser::parse($schemaContent)
-        );
-
+        // Mock readSchemaFiles() instead of getSchema() to allow the real
+        // getSchema() logic to run, which will properly call cache->set()
         $this->service = $this->construct(
             ResolverService::class,
             [
@@ -702,7 +700,7 @@ GRAPHQL;
                 $this->logger,
             ],
             [
-                'getSchema' => $schema,
+                'readSchemaFiles' => $schemaContent,
             ]
         );
     }
