@@ -8,9 +8,6 @@ use GraphQL\Language\AST\DocumentNode;
 use GraphQL\Type\Definition\ResolveInfo;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
-use TYPO3\CMS\Core\Core\ApplicationContext;
-use TYPO3\CMS\Core\Core\Environment;
-use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -18,6 +15,17 @@ use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
 
 class ResolverServiceTest extends Unit
 {
+    private const USER_SCHEMA = <<<'GRAPHQL'
+type Query {
+    user(id: Int): User
+}
+
+type User {
+    id: Int
+    name: String
+}
+GRAPHQL;
+
     private ConnectionPool $connectionPool;
     private ConfigurationManagerInterface $configurationManager;
     private FrontendInterface $cache;
@@ -85,21 +93,7 @@ class ResolverServiceTest extends Unit
 
     public function testProcessValidGraphQLQuery(): void
     {
-        $schemaContent = <<<'GRAPHQL'
-type Query {
-    user(id: Int): User
-}
-
-type User {
-    id: Int
-    name: String
-}
-GRAPHQL;
-
-        $queryBuilder = $this->createMockQueryBuilder(
-            'fe_users',
-            [['id' => 1, 'name' => 'John Doe']]
-        );
+        $queryBuilder = $this->createMockQueryBuilder([['id' => 1, 'name' => 'John Doe']]);
 
         $this->connectionPool = $this->makeEmpty(
             ConnectionPool::class,
@@ -108,7 +102,7 @@ GRAPHQL;
             ]
         );
 
-        $this->setupServiceWithSchema($schemaContent);
+        $this->setupServiceWithSchema(self::USER_SCHEMA);
 
         $queryJson = json_encode([
             'query' => '{ user(id: 1) { id name } }',
@@ -123,21 +117,7 @@ GRAPHQL;
 
     public function testProcessWithVariables(): void
     {
-        $schemaContent = <<<'GRAPHQL'
-type Query {
-    user(id: Int): User
-}
-
-type User {
-    id: Int
-    name: String
-}
-GRAPHQL;
-
-        $queryBuilder = $this->createMockQueryBuilder(
-            'fe_users',
-            [['id' => 42, 'name' => 'Jane Doe']]
-        );
+        $queryBuilder = $this->createMockQueryBuilder([['id' => 42, 'name' => 'Jane Doe']]);
 
         $this->connectionPool = $this->makeEmpty(
             ConnectionPool::class,
@@ -146,7 +126,7 @@ GRAPHQL;
             ]
         );
 
-        $this->setupServiceWithSchema($schemaContent);
+        $this->setupServiceWithSchema(self::USER_SCHEMA);
 
         $queryJson = json_encode([
             'query' => 'query GetUser($userId: Int) { user(id: $userId) { id name } }',
@@ -225,15 +205,8 @@ GRAPHQL;
         // This ensures the test works regardless of Environment::getContext() value
         $this->service = $this->construct(
             ResolverService::class,
-            [
-                $this->connectionPool,
-                $this->configurationManager,
-                $this->cache,
-                $this->logger,
-            ],
-            [
-                'readSchemaFiles' => $schemaContent,
-            ]
+            $this->getServiceConstructorArgs(),
+            ['readSchemaFiles' => $schemaContent]
         );
 
         $schema = $this->invokePrivateMethod($this->service, 'getSchema');
@@ -271,29 +244,7 @@ GRAPHQL;
     public function testReadSchemaFilesWithSingleFile(): void
     {
         $schemaContent = 'type Query { hello: String }';
-
-        $this->configurationManager = $this->makeEmpty(
-            ConfigurationManagerInterface::class,
-            [
-                'getConfiguration' => [
-                    'schemaFiles' => [],
-                    'tableMapping' => [],
-                ],
-            ]
-        );
-
-        $this->service = $this->construct(
-            ResolverService::class,
-            [
-                $this->connectionPool,
-                $this->configurationManager,
-                $this->cache,
-                $this->logger,
-            ],
-            [
-                'readSchemaFiles' => $schemaContent,
-            ]
-        );
+        $this->createServiceWithMockedReadSchemaFiles($schemaContent);
 
         $result = $this->invokePrivateMethod($this->service, 'readSchemaFiles');
         verify($result)->equals($schemaContent);
@@ -305,28 +256,7 @@ GRAPHQL;
         $content2 = 'type User { id: Int name: String }';
         $combinedContent = $content1 . $content2;
 
-        $this->configurationManager = $this->makeEmpty(
-            ConfigurationManagerInterface::class,
-            [
-                'getConfiguration' => [
-                    'schemaFiles' => [],
-                    'tableMapping' => [],
-                ],
-            ]
-        );
-
-        $this->service = $this->construct(
-            ResolverService::class,
-            [
-                $this->connectionPool,
-                $this->configurationManager,
-                $this->cache,
-                $this->logger,
-            ],
-            [
-                'readSchemaFiles' => $combinedContent,
-            ]
-        );
+        $this->createServiceWithMockedReadSchemaFiles($combinedContent);
 
         $result = $this->invokePrivateMethod($this->service, 'readSchemaFiles');
         verify($result)->equals($combinedContent);
@@ -334,28 +264,7 @@ GRAPHQL;
 
     public function testReadSchemaFilesWithEmptyArray(): void
     {
-        $this->configurationManager = $this->makeEmpty(
-            ConfigurationManagerInterface::class,
-            [
-                'getConfiguration' => [
-                    'schemaFiles' => [],
-                    'tableMapping' => [],
-                ],
-            ]
-        );
-
-        $this->service = $this->construct(
-            ResolverService::class,
-            [
-                $this->connectionPool,
-                $this->configurationManager,
-                $this->cache,
-                $this->logger,
-            ],
-            [
-                'readSchemaFiles' => '',
-            ]
-        );
+        $this->createServiceWithMockedReadSchemaFiles('');
 
         $result = $this->invokePrivateMethod($this->service, 'readSchemaFiles');
         verify($result)->equals('');
@@ -369,10 +278,7 @@ GRAPHQL;
     {
         $this->setupServiceWithSchema('type Query { users: [User] } type User { id: Int }');
 
-        $queryBuilder = $this->createMockQueryBuilder(
-            'fe_users',
-            [['id' => 1], ['id' => 2]]
-        );
+        $queryBuilder = $this->createMockQueryBuilder([['id' => 1], ['id' => 2]]);
 
         $this->connectionPool = $this->makeEmpty(
             ConnectionPool::class,
@@ -381,12 +287,7 @@ GRAPHQL;
             ]
         );
 
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
-        );
+        $this->service = $this->createService();
 
         $resolveInfo = $this->createMockResolveInfo(['id' => true]);
 
@@ -403,33 +304,7 @@ GRAPHQL;
     {
         $this->setupServiceWithSchema('type Query { users: [User] } type User { id: Int name: String }');
 
-        $expressionBuilder = $this->makeEmpty(ExpressionBuilder::class, [
-            'eq' => function () {
-                return 'id = 1';
-            },
-        ]);
-
-        $queryBuilder = $this->makeEmpty(QueryBuilder::class, [
-            'select' => function () use (&$queryBuilder) {
-                return $queryBuilder;
-            },
-            'from' => function () use (&$queryBuilder) {
-                return $queryBuilder;
-            },
-            'where' => function () use (&$queryBuilder) {
-                return $queryBuilder;
-            },
-            'expr' => $expressionBuilder,
-            'createNamedParameter' => function ($value) {
-                return "'{$value}'";
-            },
-            'executeQuery' => function () {
-                $statement = $this->makeEmpty(\Doctrine\DBAL\Result::class, [
-                    'fetchAllAssociative' => [['id' => 1, 'name' => 'John']],
-                ]);
-                return $statement;
-            },
-        ]);
+        $queryBuilder = $this->createFluentQueryBuilder([['id' => 1, 'name' => 'John']]);
 
         $this->connectionPool = $this->makeEmpty(
             ConnectionPool::class,
@@ -438,12 +313,7 @@ GRAPHQL;
             ]
         );
 
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
-        );
+        $this->service = $this->createService();
 
         $resolveInfo = $this->createMockResolveInfo(['id' => true, 'name' => true]);
 
@@ -460,13 +330,7 @@ GRAPHQL;
     public function testResolveRootFieldNotInTableMapping(): void
     {
         $this->setupServiceWithSchema('type Query { test: String } type User { id: Int }');
-
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
-        );
+        $this->service = $this->createService();
 
         $resolveInfo = $this->createMockResolveInfo(['id' => true]);
 
@@ -479,19 +343,12 @@ GRAPHQL;
         verify($result)->null();
     }
 
-    public function testResolveNestedField(): void
+    public function testResolveNestedFieldConvertsToSnakeCase(): void
     {
         $this->setupServiceWithSchema('type Query { test: String }');
-
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
-        );
+        $this->service = $this->createService();
 
         $resolveInfo = $this->createMockResolveInfo([], 'userName');
-
         $root = ['user_name' => 'John Doe'];
 
         $result = $this->invokePrivateMethod(
@@ -503,19 +360,12 @@ GRAPHQL;
         verify($result)->equals('John Doe');
     }
 
-    public function testResolveNestedFieldCamelCaseConversion(): void
+    public function testResolveNestedFieldWithCamelCaseConversion(): void
     {
         $this->setupServiceWithSchema('type Query { test: String }');
-
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
-        );
+        $this->service = $this->createService();
 
         $resolveInfo = $this->createMockResolveInfo([], 'createdAt');
-
         $root = ['created_at' => '2025-01-01'];
 
         $result = $this->invokePrivateMethod(
@@ -527,12 +377,12 @@ GRAPHQL;
         verify($result)->equals('2025-01-01');
     }
 
-    public function testResolveDatabaseError(): void
+    public function testResolveDatabaseErrorLogsAndReturnsEmpty(): void
     {
         $this->setupServiceWithSchema('type Query { users: [User] } type User { id: Int }');
 
         $queryBuilder = $this->makeEmpty(QueryBuilder::class, [
-            'select' => function () use (&$queryBuilder) {
+            'select' => function () {
                 throw new \Exception('Database error');
             },
         ]);
@@ -555,12 +405,7 @@ GRAPHQL;
             ]
         );
 
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
-        );
+        $this->service = $this->createService();
 
         $resolveInfo = $this->createMockResolveInfo(['id' => true]);
 
@@ -578,35 +423,12 @@ GRAPHQL;
     {
         $this->setupServiceWithSchema('type Query { users: [User] } type User { id: Int status: String }');
 
-        $expressionBuilder = $this->makeEmpty(ExpressionBuilder::class, [
-            'eq' => function ($field, $value) {
-                return "{$field} = {$value}";
-            },
-        ]);
-
         $whereConditions = [];
-        $queryBuilder = $this->makeEmpty(QueryBuilder::class, [
-            'select' => function () use (&$queryBuilder) {
-                return $queryBuilder;
-            },
-            'from' => function () use (&$queryBuilder) {
-                return $queryBuilder;
-            },
-            'where' => function (...$conditions) use (&$queryBuilder, &$whereConditions) {
-                $whereConditions = $conditions;
-                return $queryBuilder;
-            },
-            'expr' => $expressionBuilder,
-            'createNamedParameter' => function ($value) {
-                return "'{$value}'";
-            },
-            'executeQuery' => function () {
-                $statement = $this->makeEmpty(\Doctrine\DBAL\Result::class, [
-                    'fetchAllAssociative' => [['id' => 1, 'status' => 'active']],
-                ]);
-                return $statement;
-            },
-        ]);
+        $queryBuilder = $this->createFluentQueryBuilder(
+            [['id' => 1, 'status' => 'active']],
+            null,
+            $whereConditions
+        );
 
         $this->connectionPool = $this->makeEmpty(
             ConnectionPool::class,
@@ -615,12 +437,7 @@ GRAPHQL;
             ]
         );
 
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
-        );
+        $this->service = $this->createService();
 
         $resolveInfo = $this->createMockResolveInfo(['id' => true, 'status' => true]);
 
@@ -665,21 +482,37 @@ GRAPHQL;
 
         $this->service = $this->construct(
             ResolverService::class,
-            [
-                $this->connectionPool,
-                $this->configurationManager,
-                $this->cache,
-                $this->logger,
-            ],
-            [
-                'getSchema' => $schema,
-            ]
+            $this->getServiceConstructorArgs(),
+            ['getSchema' => $schema]
         );
     }
 
     private function setupServiceWithSchemaForCacheTest(string $schemaContent): void
     {
-        $this->configurationManager = $this->makeEmpty(
+        $this->configurationManager = $this->createEmptyConfigurationManager();
+
+        // Mock readSchemaFiles() instead of getSchema() to allow the real
+        // getSchema() logic to run, which will properly call cache->set()
+        $this->service = $this->construct(
+            ResolverService::class,
+            $this->getServiceConstructorArgs(),
+            ['readSchemaFiles' => $schemaContent]
+        );
+    }
+
+    private function createService(): ResolverService
+    {
+        return new ResolverService(
+            $this->connectionPool,
+            $this->configurationManager,
+            $this->cache,
+            $this->logger
+        );
+    }
+
+    private function createEmptyConfigurationManager(): ConfigurationManagerInterface
+    {
+        return $this->makeEmpty(
             ConfigurationManagerInterface::class,
             [
                 'getConfiguration' => [
@@ -688,24 +521,30 @@ GRAPHQL;
                 ],
             ]
         );
+    }
 
-        // Mock readSchemaFiles() instead of getSchema() to allow the real
-        // getSchema() logic to run, which will properly call cache->set()
+    private function createServiceWithMockedReadSchemaFiles(string $content): void
+    {
+        $this->configurationManager = $this->createEmptyConfigurationManager();
+
         $this->service = $this->construct(
             ResolverService::class,
-            [
-                $this->connectionPool,
-                $this->configurationManager,
-                $this->cache,
-                $this->logger,
-            ],
-            [
-                'readSchemaFiles' => $schemaContent,
-            ]
+            $this->getServiceConstructorArgs(),
+            ['readSchemaFiles' => $content]
         );
     }
 
-    private function createMockQueryBuilder(string $tableName, array $returnData): QueryBuilder
+    private function getServiceConstructorArgs(): array
+    {
+        return [
+            $this->connectionPool,
+            $this->configurationManager,
+            $this->cache,
+            $this->logger,
+        ];
+    }
+
+    private function createMockQueryBuilder(array $returnData): QueryBuilder
     {
         $queryBuilder = $this->makeEmpty(QueryBuilder::class, [
             'select' => function () use (&$queryBuilder) {
@@ -734,6 +573,45 @@ GRAPHQL;
         ]);
 
         return $queryBuilder;
+    }
+
+    private function createFluentQueryBuilder(
+        array $returnData,
+        ?ExpressionBuilder $expressionBuilder = null,
+        ?array &$capturedConditions = null
+    ): QueryBuilder {
+        if ($expressionBuilder === null) {
+            $expressionBuilder = $this->makeEmpty(ExpressionBuilder::class, [
+                'eq' => function ($field, $value) {
+                    return "{$field} = {$value}";
+                },
+            ]);
+        }
+
+        return $this->makeEmpty(QueryBuilder::class, [
+            'select' => function () use (&$queryBuilder) {
+                return $queryBuilder;
+            },
+            'from' => function () use (&$queryBuilder) {
+                return $queryBuilder;
+            },
+            'where' => function (...$conditions) use (&$queryBuilder, &$capturedConditions) {
+                if ($capturedConditions !== null) {
+                    $capturedConditions = $conditions;
+                }
+                return $queryBuilder;
+            },
+            'expr' => $expressionBuilder,
+            'createNamedParameter' => function ($value) {
+                return "'{$value}'";
+            },
+            'executeQuery' => function () use ($returnData) {
+                $statement = $this->makeEmpty(\Doctrine\DBAL\Result::class, [
+                    'fetchAllAssociative' => $returnData,
+                ]);
+                return $statement;
+            },
+        ]);
     }
 
     private function createMockResolveInfo(array $fieldSelection, string $fieldName = 'users'): ResolveInfo
