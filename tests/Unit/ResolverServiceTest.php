@@ -288,13 +288,15 @@ GRAPHQL;
             ]
         );
 
-        $this->service = $this->make(
+        $this->service = $this->construct(
             ResolverService::class,
             [
-                'connectionPool' => $this->connectionPool,
-                'configurationManager' => $this->configurationManager,
-                'cache' => $this->cache,
-                'logger' => $this->logger,
+                $this->connectionPool,
+                $this->configurationManager,
+                $this->cache,
+                $this->logger,
+            ],
+            [
                 'readSchemaFiles' => $schemaContent,
             ]
         );
@@ -319,13 +321,15 @@ GRAPHQL;
             ]
         );
 
-        $this->service = $this->make(
+        $this->service = $this->construct(
             ResolverService::class,
             [
-                'connectionPool' => $this->connectionPool,
-                'configurationManager' => $this->configurationManager,
-                'cache' => $this->cache,
-                'logger' => $this->logger,
+                $this->connectionPool,
+                $this->configurationManager,
+                $this->cache,
+                $this->logger,
+            ],
+            [
                 'readSchemaFiles' => $combinedContent,
             ]
         );
@@ -346,13 +350,15 @@ GRAPHQL;
             ]
         );
 
-        $this->service = $this->make(
+        $this->service = $this->construct(
             ResolverService::class,
             [
-                'connectionPool' => $this->connectionPool,
-                'configurationManager' => $this->configurationManager,
-                'cache' => $this->cache,
-                'logger' => $this->logger,
+                $this->connectionPool,
+                $this->configurationManager,
+                $this->cache,
+                $this->logger,
+            ],
+            [
                 'readSchemaFiles' => '',
             ]
         );
@@ -663,13 +669,15 @@ GRAPHQL;
             \GraphQL\Language\Parser::parse($schemaContent)
         );
 
-        $this->service = $this->make(
+        $this->service = $this->construct(
             ResolverService::class,
             [
-                'connectionPool' => $this->connectionPool,
-                'configurationManager' => $this->configurationManager,
-                'cache' => $this->cache,
-                'logger' => $this->logger,
+                $this->connectionPool,
+                $this->configurationManager,
+                $this->cache,
+                $this->logger,
+            ],
+            [
                 'getSchema' => $schema,
             ]
         );
@@ -691,13 +699,15 @@ GRAPHQL;
             \GraphQL\Language\Parser::parse($schemaContent)
         );
 
-        $this->service = $this->make(
+        $this->service = $this->construct(
             ResolverService::class,
             [
-                'connectionPool' => $this->connectionPool,
-                'configurationManager' => $this->configurationManager,
-                'cache' => $this->cache,
-                'logger' => $this->logger,
+                $this->connectionPool,
+                $this->configurationManager,
+                $this->cache,
+                $this->logger,
+            ],
+            [
                 'getSchema' => $schema,
             ]
         );
