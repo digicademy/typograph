@@ -275,65 +275,62 @@ GRAPHQL;
 
     public function testReadSchemaFilesWithSingleFile(): void
     {
-        $testSchemaFile = '/tmp/test_schema_' . uniqid() . '.graphql';
         $schemaContent = 'type Query { hello: String }';
-        file_put_contents($testSchemaFile, $schemaContent);
 
         $this->configurationManager = $this->makeEmpty(
             ConfigurationManagerInterface::class,
             [
                 'getConfiguration' => [
-                    'schemaFiles' => [$testSchemaFile],
+                    'schemaFiles' => [],
                     'tableMapping' => [],
                 ],
             ]
         );
 
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
+        $this->service = $this->make(
+            ResolverService::class,
+            [
+                'connectionPool' => $this->connectionPool,
+                'configurationManager' => $this->configurationManager,
+                'cache' => $this->cache,
+                'logger' => $this->logger,
+                'readSchemaFiles' => $schemaContent,
+            ]
         );
 
         $result = $this->invokePrivateMethod($this->service, 'readSchemaFiles');
         verify($result)->equals($schemaContent);
-
-        unlink($testSchemaFile);
     }
 
     public function testReadSchemaFilesWithMultipleFiles(): void
     {
-        $testFile1 = '/tmp/test_schema1_' . uniqid() . '.graphql';
-        $testFile2 = '/tmp/test_schema2_' . uniqid() . '.graphql';
         $content1 = 'type Query { hello: String }';
         $content2 = 'type User { id: Int name: String }';
-
-        file_put_contents($testFile1, $content1);
-        file_put_contents($testFile2, $content2);
+        $combinedContent = $content1 . $content2;
 
         $this->configurationManager = $this->makeEmpty(
             ConfigurationManagerInterface::class,
             [
                 'getConfiguration' => [
-                    'schemaFiles' => [$testFile1, $testFile2],
+                    'schemaFiles' => [],
                     'tableMapping' => [],
                 ],
             ]
         );
 
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
+        $this->service = $this->make(
+            ResolverService::class,
+            [
+                'connectionPool' => $this->connectionPool,
+                'configurationManager' => $this->configurationManager,
+                'cache' => $this->cache,
+                'logger' => $this->logger,
+                'readSchemaFiles' => $combinedContent,
+            ]
         );
 
         $result = $this->invokePrivateMethod($this->service, 'readSchemaFiles');
-        verify($result)->equals($content1 . $content2);
-
-        unlink($testFile1);
-        unlink($testFile2);
+        verify($result)->equals($combinedContent);
     }
 
     public function testReadSchemaFilesWithEmptyArray(): void
@@ -348,11 +345,15 @@ GRAPHQL;
             ]
         );
 
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
+        $this->service = $this->make(
+            ResolverService::class,
+            [
+                'connectionPool' => $this->connectionPool,
+                'configurationManager' => $this->configurationManager,
+                'cache' => $this->cache,
+                'logger' => $this->logger,
+                'readSchemaFiles' => '',
+            ]
         );
 
         $result = $this->invokePrivateMethod($this->service, 'readSchemaFiles');
@@ -638,14 +639,11 @@ GRAPHQL;
 
     private function setupServiceWithSchema(string $schemaContent): void
     {
-        $testSchemaFile = '/tmp/test_schema_' . uniqid() . '.graphql';
-        file_put_contents($testSchemaFile, $schemaContent);
-
         $this->configurationManager = $this->makeEmpty(
             ConfigurationManagerInterface::class,
             [
                 'getConfiguration' => [
-                    'schemaFiles' => [$testSchemaFile],
+                    'schemaFiles' => [],
                     'tableMapping' => ['users' => 'fe_users', 'user' => 'fe_users'],
                 ],
             ]
@@ -660,47 +658,40 @@ GRAPHQL;
             ]
         );
 
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
+        $this->service = $this->make(
+            ResolverService::class,
+            [
+                'connectionPool' => $this->connectionPool,
+                'configurationManager' => $this->configurationManager,
+                'cache' => $this->cache,
+                'logger' => $this->logger,
+                'readSchemaFiles' => $schemaContent,
+            ]
         );
-
-        register_shutdown_function(function () use ($testSchemaFile) {
-            if (file_exists($testSchemaFile)) {
-                @unlink($testSchemaFile);
-            }
-        });
     }
 
     private function setupServiceWithSchemaForCacheTest(string $schemaContent): void
     {
-        $testSchemaFile = '/tmp/test_schema_cache_' . uniqid() . '.graphql';
-        file_put_contents($testSchemaFile, $schemaContent);
-
         $this->configurationManager = $this->makeEmpty(
             ConfigurationManagerInterface::class,
             [
                 'getConfiguration' => [
-                    'schemaFiles' => [$testSchemaFile],
+                    'schemaFiles' => [],
                     'tableMapping' => [],
                 ],
             ]
         );
 
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
+        $this->service = $this->make(
+            ResolverService::class,
+            [
+                'connectionPool' => $this->connectionPool,
+                'configurationManager' => $this->configurationManager,
+                'cache' => $this->cache,
+                'logger' => $this->logger,
+                'readSchemaFiles' => $schemaContent,
+            ]
         );
-
-        register_shutdown_function(function () use ($testSchemaFile) {
-            if (file_exists($testSchemaFile)) {
-                @unlink($testSchemaFile);
-            }
-        });
     }
 
     private function createMockQueryBuilder(string $tableName, array $returnData): QueryBuilder
