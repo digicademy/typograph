@@ -4,8 +4,7 @@ TYPO3 extension for providing access to TYPO3 database table data via a GraphQL 
 
 If you want to use this extension, you need to be sufficiently familiar with the basic concepts of GraphQL. You also need to know how to create GraphQL schemas. If you want to learn more about GraphQL or need a refresher, read the docs at https://graphql.org/learn/.
 
-[!WARNING]
-This extension is still in development stage and while it currently works for us, it may break in cases we haven not tested yet. Use with care!
+⚠️ This extension is still in development stage and while it currently works for us, it may break in cases we haven not tested yet. Use with care!
 
 ## Configuration
 
