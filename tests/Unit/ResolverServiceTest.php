@@ -214,7 +214,8 @@ GRAPHQL;
 
     public function testGetSchemaInProductionWithCacheHit(): void
     {
-        $cachedDocument = $this->makeEmpty(DocumentNode::class);
+        $schemaContent = 'type Query { test: String }';
+        $cachedDocument = \GraphQL\Language\Parser::parse($schemaContent);
 
         $this->cache = $this->makeEmpty(
             FrontendInterface::class,
@@ -228,7 +229,7 @@ GRAPHQL;
             ConfigurationManagerInterface::class,
             [
                 'getConfiguration' => [
-                    'schemaFiles' => ['EXT:typograph/Resources/Private/GraphQL/schema.graphql'],
+                    'schemaFiles' => [],
                     'tableMapping' => ['users' => 'fe_users'],
                 ],
             ]
@@ -658,6 +659,10 @@ GRAPHQL;
             ]
         );
 
+        $schema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schemaContent)
+        );
+
         $this->service = $this->make(
             ResolverService::class,
             [
@@ -665,7 +670,7 @@ GRAPHQL;
                 'configurationManager' => $this->configurationManager,
                 'cache' => $this->cache,
                 'logger' => $this->logger,
-                'readSchemaFiles' => $schemaContent,
+                'getSchema' => $schema,
             ]
         );
     }
@@ -682,6 +687,10 @@ GRAPHQL;
             ]
         );
 
+        $schema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schemaContent)
+        );
+
         $this->service = $this->make(
             ResolverService::class,
             [
@@ -689,7 +698,7 @@ GRAPHQL;
                 'configurationManager' => $this->configurationManager,
                 'cache' => $this->cache,
                 'logger' => $this->logger,
-                'readSchemaFiles' => $schemaContent,
+                'getSchema' => $schema,
             ]
         );
     }
