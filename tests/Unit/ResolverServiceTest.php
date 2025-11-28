@@ -588,7 +588,7 @@ GRAPHQL;
             ]);
         }
 
-        return $this->makeEmpty(QueryBuilder::class, [
+        $queryBuilder = $this->makeEmpty(QueryBuilder::class, [
             'select' => function () use (&$queryBuilder) {
                 return $queryBuilder;
             },
@@ -612,6 +612,8 @@ GRAPHQL;
                 return $statement;
             },
         ]);
+
+        return $queryBuilder;
     }
 
     private function createMockResolveInfo(array $fieldSelection, string $fieldName = 'users'): ResolveInfo
