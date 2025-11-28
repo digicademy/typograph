@@ -96,12 +96,6 @@ type User {
 }
 GRAPHQL;
 
-        $this->setupServiceWithSchema($schemaContent);
-
-        $queryJson = json_encode([
-            'query' => '{ user(id: 1) { id name } }',
-        ]);
-
         $queryBuilder = $this->createMockQueryBuilder(
             'fe_users',
             [['id' => 1, 'name' => 'John Doe']]
@@ -114,12 +108,11 @@ GRAPHQL;
             ]
         );
 
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
-        );
+        $this->setupServiceWithSchema($schemaContent);
+
+        $queryJson = json_encode([
+            'query' => '{ user(id: 1) { id name } }',
+        ]);
 
         $result = $this->service->process($queryJson);
         verify($result)->isString();
@@ -141,13 +134,6 @@ type User {
 }
 GRAPHQL;
 
-        $this->setupServiceWithSchema($schemaContent);
-
-        $queryJson = json_encode([
-            'query' => 'query GetUser($userId: Int) { user(id: $userId) { id name } }',
-            'variables' => ['userId' => 42],
-        ]);
-
         $queryBuilder = $this->createMockQueryBuilder(
             'fe_users',
             [['id' => 42, 'name' => 'Jane Doe']]
@@ -160,12 +146,12 @@ GRAPHQL;
             ]
         );
 
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
-        );
+        $this->setupServiceWithSchema($schemaContent);
+
+        $queryJson = json_encode([
+            'query' => 'query GetUser($userId: Int) { user(id: $userId) { id name } }',
+            'variables' => ['userId' => 42],
+        ]);
 
         $result = $this->service->process($queryJson);
         verify($result)->isString();
@@ -235,11 +221,19 @@ GRAPHQL;
             ]
         );
 
-        $this->service = new ResolverService(
-            $this->connectionPool,
-            $this->configurationManager,
-            $this->cache,
-            $this->logger
+        // Use construct() to mock readSchemaFiles() as fallback for development mode
+        // This ensures the test works regardless of Environment::getContext() value
+        $this->service = $this->construct(
+            ResolverService::class,
+            [
+                $this->connectionPool,
+                $this->configurationManager,
+                $this->cache,
+                $this->logger,
+            ],
+            [
+                'readSchemaFiles' => $schemaContent,
+            ]
         );
 
         $schema = $this->invokePrivateMethod($this->service, 'getSchema');
