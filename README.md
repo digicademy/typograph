@@ -6,6 +6,12 @@ If you want to use this extension, you need to be sufficiently familiar with the
 
 ⚠️ This extension is still in development stage and while it currently works for us, it may break in cases we haven not tested yet. Use with care!
 
+## Integration
+
+Add a new page for the endpoint. The slug for the page must be `/graphql`. Add the *TypoGraph GraphQL Endpoint* plugin as the only content element to this page. That's it!
+
+Now you can configure your plugin.
+
 ## Configuration
 
 The TypoGraph extension requires minimal TypoScript configuration.
