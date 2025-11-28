@@ -72,6 +72,12 @@ class ResolverService
     public function process(string $json): mixed
     {
         $input = json_decode($json, true);
+
+        if (!is_array($input) || !isset($input['query'])) {
+            $this->logger->error('Invalid JSON input or missing query field');
+            return json_encode(null);
+        }
+
         $query = $input['query'];
         $variableValues = isset($input['variables']) ? $input['variables'] : null;
         $schema = $this->getSchema();
