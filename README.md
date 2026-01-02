@@ -65,13 +65,16 @@ plugin.tx_typograph.settings {
     TypeName.fieldName {
       sourceField = database_column_name
       targetType = RelatedTypeName
-      storageType = uid|commaSeparated|mmTable
+      storageType = uid|commaSeparated|mmTable|foreignKey
 
       # Additional fields for mmTable storage type:
       mmTable = tx_some_mm_table
       mmSourceField = uid_local
       mmTargetField = uid_foreign
       mmSortingField = sorting
+
+      # Additional fields for foreignKey storage type:
+      foreignKeyField = column_in_target_table
     }
   }
 }
@@ -81,13 +84,14 @@ plugin.tx_typograph.settings {
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `sourceField` | No | Field name in snake_case | Database column in the source table containing the relation reference |
+| `sourceField` | No | Field name in snake_case | Database column in the source table containing the relation reference (not used for `foreignKey` type) |
 | `targetType` | Yes | - | GraphQL type name of the related entity (must exist in `tableMapping`) |
-| `storageType` | No | `uid` | How the relation is stored: `uid`, `commaSeparated`, or `mmTable` |
-| `mmTable` | For MM only | - | Name of the MM (many-to-many) intermediary table |
-| `mmSourceField` | For MM only | `uid_local` | Column in MM table referencing source record |
-| `mmTargetField` | For MM only | `uid_foreign` | Column in MM table referencing target record |
-| `mmSortingField` | For MM only | `sorting` | Column in MM table for sorting order |
+| `storageType` | No | `uid` | How the relation is stored: `uid`, `commaSeparated`, `mmTable`, or `foreignKey` |
+| `mmTable` | For `mmTable` only | - | Name of the MM (many-to-many) intermediary table |
+| `mmSourceField` | For `mmTable` only | `uid_local` | Column in MM table referencing source record |
+| `mmTargetField` | For `mmTable` only | `uid_foreign` | Column in MM table referencing target record |
+| `mmSortingField` | For `mmTable` only | `sorting` | Column in MM table for sorting order |
+| `foreignKeyField` | For `foreignKey` only | - | Column in target table that references the source record UID |
 
 ### Storage Types
 
@@ -195,6 +199,65 @@ relations {
 }
 ```
 
+#### 4. Foreign Key / Inverse Relation (`foreignKey`)
+
+Use when the target table has a foreign key column pointing back to the source record. This handles "sloppy MM" scenarios where multiple target records can reference the same source record, potentially with duplicate data.
+
+**Database structure:**
+```
+tx_taxonomy table:
+  uid: 5
+  name: "Applied Sciences"
+
+tx_discipline table:
+  uid: 1
+  name: "Physics"
+  discipline_taxonomy: 5  ← Foreign key pointing to taxonomy
+
+tx_discipline table:
+  uid: 2
+  name: "Physics"          ← Same name, different record
+  discipline_taxonomy: 5  ← Same taxonomy reference
+
+tx_discipline table:
+  uid: 3
+  name: "Chemistry"
+  discipline_taxonomy: 5  ← Another discipline for same taxonomy
+```
+
+**GraphQL schema:**
+```graphql
+type Taxonomy {
+  name: String
+  disciplines: [Discipline]
+}
+
+type Discipline {
+  name: String
+}
+```
+
+**Configuration:**
+```typoscript
+relations {
+  Taxonomy.disciplines {
+    targetType = Discipline
+    storageType = foreignKey
+    foreignKeyField = discipline_taxonomy
+  }
+}
+```
+
+**How it works:**
+- Queries the target table (`tx_discipline`)
+- WHERE `discipline_taxonomy` = source UID (5)
+- Returns all matching records (including duplicates)
+
+**Use cases:**
+- Legacy databases with denormalized data
+- "Sloppy MM" relations without proper MM tables
+- Inverse relations where child records point to parent
+
 ### Complete Configuration Example
 
 Here's a complete example with multiple relation types:
@@ -244,6 +307,13 @@ plugin.tx_typograph.settings {
       mmTargetField = uid_foreign
       mmSortingField = sorting
     }
+
+    # Foreign key relation (inverse/sloppy MM)
+    Taxonomy.relatedDisciplines {
+      targetType = Discipline
+      storageType = foreignKey
+      foreignKeyField = discipline_taxonomy
+    }
   }
 }
 ```
@@ -292,6 +362,7 @@ TypoGraph logs helpful warnings and errors when relations are misconfigured:
 - **Missing targetType**: "Relation Taxonomy.disciplines is missing targetType configuration"
 - **Unmapped target**: "Target type Discipline is not mapped to a table in tableMapping"
 - **Missing MM table**: "Relation Expert.disciplines with storageType=mmTable is missing mmTable configuration"
+- **Missing foreign key field**: "Relation Taxonomy.disciplines with storageType=foreignKey is missing foreignKeyField configuration"
 
 Check your TYPO3 logs if relations return `null` or empty arrays unexpectedly.
 

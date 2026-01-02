@@ -371,6 +371,19 @@ class ResolverService
                         $info
                     );
 
+                case 'foreignKey':
+                    $foreignKeyField = $relationConfig['foreignKeyField'] ?? null;
+                    if ($foreignKeyField === null) {
+                        $this->logger->error("Relation {$relationKey} with storageType=foreignKey is missing foreignKeyField configuration");
+                        return [];
+                    }
+                    return $this->resolveForeignKeyRelation(
+                        $targetTable,
+                        $foreignKeyField,
+                        (int)$root['uid'],
+                        $info
+                    );
+
                 default:
                     $this->logger->error("Unknown storage type: {$storageType} for relation {$relationKey}");
                     return $isList ? [] : null;
@@ -467,6 +480,44 @@ class ResolverService
         $targetUids = array_column($mmRecords, $mmTargetField);
 
         return $this->batchLoadRecords($targetTable, $targetUids, $info);
+    }
+
+    /**
+     * Resolve foreign key relation (inverse relation)
+     *
+     * Used when the target table has a foreign key field pointing back to the source record.
+     * This handles "sloppy MM" scenarios where multiple target records reference the same
+     * source record via a foreign key column.
+     *
+     * @param string $targetTable Target table to query
+     * @param string $foreignKeyField Column in target table that references source UID
+     * @param int $sourceUid UID of the source record
+     * @param ResolveInfo $info Field resolution info
+     * @return array<array<string, mixed>>
+     */
+    protected function resolveForeignKeyRelation(
+        string $targetTable,
+        string $foreignKeyField,
+        int $sourceUid,
+        ResolveInfo $info
+    ): array {
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($targetTable);
+        $fields = $this->getRequestedFields($info);
+
+        $records = $queryBuilder
+            ->select(...$fields)
+            ->from($targetTable)
+            ->where($queryBuilder->expr()->eq($foreignKeyField, $queryBuilder->createNamedParameter($sourceUid)))
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        // Cache individual records for potential reuse
+        foreach ($records as $record) {
+            $cacheKey = "{$targetTable}:{$record['uid']}";
+            $this->batchCache[$cacheKey] = $record;
+        }
+
+        return $records;
     }
 
     /**

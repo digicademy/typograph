@@ -674,6 +674,93 @@ GRAPHQL;
         verify($loggerCalled)->true();
     }
 
+    public function testResolveForeignKeyRelation(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { disciplines: [Discipline] } type Discipline { name: String }';
+
+        $settings = [
+            'schemaFiles' => [],
+            'tableMapping' => [
+                'taxonomy' => 'tx_taxonomy',
+                'Discipline' => 'tx_discipline',
+            ],
+            'relations' => [
+                'Taxonomy.disciplines' => [
+                    'targetType' => 'Discipline',
+                    'storageType' => 'foreignKey',
+                    'foreignKeyField' => 'discipline_taxonomy',
+                ],
+            ],
+        ];
+
+        $this->setupServiceWithSettings($settings, $schema);
+
+        // Mock query builder to return multiple disciplines with same name
+        $queryBuilder = $this->createMockQueryBuilder([
+            ['uid' => 1, 'name' => 'Physics', 'discipline_taxonomy' => 5],
+            ['uid' => 2, 'name' => 'Physics', 'discipline_taxonomy' => 5],
+            ['uid' => 3, 'name' => 'Mathematics', 'discipline_taxonomy' => 5],
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $resolveInfo = $this->createMockResolveInfo(['name' => true], 'disciplines');
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolveForeignKeyRelation',
+            ['tx_discipline', 'discipline_taxonomy', 5, $resolveInfo]
+        );
+
+        verify($result)->isArray();
+        verify(count($result))->equals(3);
+        verify($result[0]['name'])->equals('Physics');
+        verify($result[1]['name'])->equals('Physics'); // Duplicate name, different UID
+        verify($result[2]['name'])->equals('Mathematics');
+    }
+
+    public function testForeignKeyRelationCachesRecords(): void
+    {
+        $schema = 'type Query { test: String }';
+        $this->setupServiceWithSchema($schema);
+
+        $queryBuilder = $this->createMockQueryBuilder([
+            ['uid' => 10, 'name' => 'Record 10'],
+            ['uid' => 20, 'name' => 'Record 20'],
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $resolveInfo = $this->createMockResolveInfo(['name' => true]);
+
+        // Execute foreign key relation
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolveForeignKeyRelation',
+            ['tx_test', 'parent_id', 5, $resolveInfo]
+        );
+
+        verify(count($result))->equals(2);
+
+        // Verify records are cached - access via reflection
+        $reflection = new \ReflectionClass($this->service);
+        $property = $reflection->getProperty('batchCache');
+        $property->setAccessible(true);
+        $cache = $property->getValue($this->service);
+
+        verify(isset($cache['tx_test:10']))->true();
+        verify(isset($cache['tx_test:20']))->true();
+        verify($cache['tx_test:10']['name'])->equals('Record 10');
+    }
+
     // =========================================================================
     // Helper Methods
     // =========================================================================
