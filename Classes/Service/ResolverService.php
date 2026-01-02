@@ -234,10 +234,7 @@ class ResolverService
 
                 // We only want to fetch fields we need.
                 // @see https://webonyx.github.io/graphql-php/data-fetching/#optimize-resolvers
-                $fields = [];
-                foreach ($info->getFieldSelection(1) as $field => $_) {
-                    array_push($fields, GeneralUtility::camelCaseToLowerCaseUnderscored($field));
-                }
+                $fields = $this->getScalarFieldsFromSelection($info);
                 $queryBuilder
                     ->select(...$fields)
                     ->from($rootTable);
@@ -590,6 +587,57 @@ class ResolverService
             $snakeCaseField = GeneralUtility::camelCaseToLowerCaseUnderscored($field);
             if (!in_array($snakeCaseField, $fields)) {
                 $fields[] = $snakeCaseField;
+            }
+        }
+
+        return $fields;
+    }
+
+    /**
+     * Get only scalar (non-relation) fields from the GraphQL selection
+     *
+     * This filters out object-type fields (relations) that should not be included
+     * in the SELECT query for the root table.
+     *
+     * @param ResolveInfo $info
+     * @return array<string>
+     */
+    protected function getScalarFieldsFromSelection(ResolveInfo $info): array
+    {
+        $fields = ['uid']; // Always include UID
+
+        $parentType = $info->returnType;
+
+        // Unwrap ListOfType to get the actual object type
+        if ($parentType instanceof ListOfType) {
+            $parentType = $parentType->getWrappedType();
+        }
+
+        // Get all fields from the parent type definition
+        if ($parentType instanceof ObjectType) {
+            $typeFields = $parentType->getFields();
+
+            foreach ($info->getFieldSelection(1) as $fieldName => $_) {
+                // Skip if field doesn't exist in type definition
+                if (!isset($typeFields[$fieldName])) {
+                    continue;
+                }
+
+                $fieldDef = $typeFields[$fieldName];
+                $fieldType = $fieldDef->getType();
+
+                // Unwrap ListOfType if present
+                if ($fieldType instanceof ListOfType) {
+                    $fieldType = $fieldType->getWrappedType();
+                }
+
+                // Only include if it's NOT an ObjectType (i.e., it's a scalar)
+                if (!($fieldType instanceof ObjectType)) {
+                    $snakeCaseField = GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
+                    if (!in_array($snakeCaseField, $fields)) {
+                        $fields[] = $snakeCaseField;
+                    }
+                }
             }
         }
 

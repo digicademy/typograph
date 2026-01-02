@@ -761,6 +761,39 @@ GRAPHQL;
         verify($cache['tx_test:10']['name'])->equals('Record 10');
     }
 
+    public function testGetScalarFieldsFromSelectionFiltersOutRelations(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { name: String disciplines: [Discipline] } type Discipline { name: String }';
+        $this->setupServiceWithSchema($schema);
+
+        // Build schema to get actual ObjectType
+        $parsedSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+
+        $taxonomyType = $parsedSchema->getType('Taxonomy');
+
+        // Create mock ResolveInfo with selection including both scalar and relation fields
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $this->makeEmpty(\GraphQL\Type\Definition\ListOfType::class, [
+                'getWrappedType' => $taxonomyType,
+            ]),
+            'getFieldSelection' => ['name' => true, 'disciplines' => true],
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'getScalarFieldsFromSelection',
+            [$resolveInfo]
+        );
+
+        // Should include 'uid' (always) and 'name' (scalar), but NOT 'disciplines' (relation)
+        verify($result)->arrayContains('uid');
+        verify($result)->arrayContains('name');
+        verify($result)->arrayNotContains('disciplines');
+        verify(count($result))->equals(2); // Only uid and name
+    }
+
     // =========================================================================
     // Helper Methods
     // =========================================================================
