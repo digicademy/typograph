@@ -794,6 +794,60 @@ GRAPHQL;
         verify(count($result))->equals(2); // Only uid and name
     }
 
+    public function testFlattenRelationsConfigConvertsNestedTypoScript(): void
+    {
+        $schema = 'type Query { test: String }';
+        $this->setupServiceWithSchema($schema);
+
+        // Simulate how TypoScript parses "Taxonomy.disciplines" as nested structure
+        $nestedConfig = [
+            'Taxonomy' => [
+                'disciplines' => [
+                    'targetType' => 'Discipline',
+                    'storageType' => 'foreignKey',
+                    'foreignKeyField' => 'discipline_taxonomy',
+                ],
+                'mainDiscipline' => [
+                    'targetType' => 'Discipline',
+                    'storageType' => 'uid',
+                    'sourceField' => 'main_discipline',
+                ],
+            ],
+            'Expert' => [
+                'disciplines' => [
+                    'targetType' => 'Discipline',
+                    'storageType' => 'mmTable',
+                    'mmTable' => 'tx_expert_discipline_mm',
+                ],
+            ],
+        ];
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'flattenRelationsConfig',
+            [$nestedConfig]
+        );
+
+        // Should flatten to dot-separated keys
+        verify(isset($result['Taxonomy.disciplines']))->true();
+        verify(isset($result['Taxonomy.mainDiscipline']))->true();
+        verify(isset($result['Expert.disciplines']))->true();
+
+        // Verify config values are preserved
+        verify($result['Taxonomy.disciplines']['targetType'])->equals('Discipline');
+        verify($result['Taxonomy.disciplines']['storageType'])->equals('foreignKey');
+        verify($result['Taxonomy.disciplines']['foreignKeyField'])->equals('discipline_taxonomy');
+
+        verify($result['Taxonomy.mainDiscipline']['targetType'])->equals('Discipline');
+        verify($result['Taxonomy.mainDiscipline']['storageType'])->equals('uid');
+
+        verify($result['Expert.disciplines']['storageType'])->equals('mmTable');
+        verify($result['Expert.disciplines']['mmTable'])->equals('tx_expert_discipline_mm');
+
+        // Should have exactly 3 flattened entries
+        verify(count($result))->equals(3);
+    }
+
     // =========================================================================
     // Helper Methods
     // =========================================================================

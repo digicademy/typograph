@@ -85,7 +85,41 @@ class ResolverService
 
         $this->schemaFiles = $settings['schemaFiles'] ?? [];
         $this->tableMapping = $settings['tableMapping'] ?? [];
-        $this->relations = $settings['relations'] ?? [];
+        $this->relations = $this->flattenRelationsConfig($settings['relations'] ?? []);
+    }
+
+    /**
+     * Flatten nested TypoScript relation configuration into dot-separated keys
+     *
+     * TypoScript parses "Taxonomy.disciplines" as nested arrays:
+     * ['Taxonomy' => ['disciplines' => [...]]]
+     *
+     * This method flattens it to:
+     * ['Taxonomy.disciplines' => [...]]
+     *
+     * @param array<string, mixed> $relations
+     * @return array<string, array<string, mixed>>
+     */
+    protected function flattenRelationsConfig(array $relations): array
+    {
+        $flattened = [];
+
+        foreach ($relations as $typeName => $fields) {
+            if (!is_array($fields)) {
+                continue;
+            }
+
+            foreach ($fields as $fieldName => $config) {
+                if (!is_array($config)) {
+                    continue;
+                }
+
+                $key = "{$typeName}.{$fieldName}";
+                $flattened[$key] = $config;
+            }
+        }
+
+        return $flattened;
     }
 
     public function process(string $json): mixed
