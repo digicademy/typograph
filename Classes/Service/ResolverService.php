@@ -356,12 +356,19 @@ class ResolverService
         $relationConfig = $this->relations[$relationKey];
         $isList = $info->returnType instanceof ListOfType;
 
-        // Get the source field (column) name
-        $sourceField = $relationConfig['sourceField'] ?? GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
-        $sourceValue = $root[$sourceField] ?? null;
+        // Determine storage type
+        $storageType = $relationConfig['storageType'] ?? 'uid';
 
-        if ($sourceValue === null || $sourceValue === '') {
-            return $isList ? [] : null;
+        // For uid and commaSeparated, we need a source field value
+        // For foreignKey and mmTable, we use the parent UID directly
+        if (in_array($storageType, ['uid', 'commaSeparated'])) {
+            // Get the source field (column) name
+            $sourceField = $relationConfig['sourceField'] ?? GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
+            $sourceValue = $root[$sourceField] ?? null;
+
+            if ($sourceValue === null || $sourceValue === '') {
+                return $isList ? [] : null;
+            }
         }
 
         // Get target table
@@ -376,9 +383,6 @@ class ResolverService
             $this->logger->error("Target type {$targetType} is not mapped to a table in tableMapping");
             return $isList ? [] : null;
         }
-
-        // Determine storage type
-        $storageType = $relationConfig['storageType'] ?? 'uid';
 
         try {
             switch ($storageType) {

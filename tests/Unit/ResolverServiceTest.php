@@ -848,6 +848,62 @@ GRAPHQL;
         verify(count($result))->equals(3);
     }
 
+    public function testForeignKeyRelationDoesNotRequireSourceField(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { disciplines: [Discipline] } type Discipline { name: String }';
+
+        $settings = [
+            'schemaFiles' => [],
+            'tableMapping' => [
+                'taxonomy' => 'tx_taxonomy',
+                'Discipline' => 'tx_discipline',
+            ],
+            'relations' => [
+                'Taxonomy.disciplines' => [
+                    'targetType' => 'Discipline',
+                    'storageType' => 'foreignKey',
+                    'foreignKeyField' => 'discipline_taxonomy',
+                ],
+            ],
+        ];
+
+        $this->setupServiceWithSettings($settings, $schema);
+
+        // Parent record WITHOUT a 'disciplines' or 'discipline_taxonomy' field
+        // For foreignKey, this should still work because it uses parent UID
+        $parentRecord = ['uid' => 42, 'name' => 'Applied Sciences'];
+
+        $queryBuilder = $this->createMockQueryBuilder([
+            ['uid' => 1, 'name' => 'Physics', 'discipline_taxonomy' => 42],
+            ['uid' => 2, 'name' => 'Chemistry', 'discipline_taxonomy' => 42],
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'parentType' => $this->makeEmpty(ObjectType::class, ['name' => 'Taxonomy']),
+            'fieldName' => 'disciplines',
+            'returnType' => $this->makeEmpty(\GraphQL\Type\Definition\ListOfType::class),
+            'getFieldSelection' => ['name' => true],
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolveRelation',
+            [$parentRecord, $resolveInfo]
+        );
+
+        // Should return disciplines even though parent has no 'disciplines' field
+        verify($result)->isArray();
+        verify(count($result))->equals(2);
+        verify($result[0]['name'])->equals('Physics');
+        verify($result[1]['name'])->equals('Chemistry');
+    }
+
     // =========================================================================
     // Helper Methods
     // =========================================================================
