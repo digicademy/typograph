@@ -42,6 +42,259 @@ plugin.tx_typograph.settings {
 }
 ```
 
+## Relation Configuration
+
+When your GraphQL types reference other types (e.g., a `Taxonomy` has multiple `Discipline` objects), you need to configure how TypoGraph should resolve these relations from your database.
+
+### Why Relations Need Configuration
+
+Unlike scalar fields (strings, integers), object-type fields require TypoGraph to:
+1. Identify which database column stores the relation reference
+2. Know which table to query for the related records
+3. Understand the storage format (single UID, comma-separated UIDs, or MM table)
+
+Without explicit configuration, TypoGraph will log a warning and return `null` for unconfigured relations.
+
+### Relation Configuration Structure
+
+Relations are configured under `plugin.tx_typograph.settings.relations` using the format `{TypeName}.{fieldName}`:
+
+```typoscript
+plugin.tx_typograph.settings {
+  relations {
+    TypeName.fieldName {
+      sourceField = database_column_name
+      targetType = RelatedTypeName
+      storageType = uid|commaSeparated|mmTable
+
+      # Additional fields for mmTable storage type:
+      mmTable = tx_some_mm_table
+      mmSourceField = uid_local
+      mmTargetField = uid_foreign
+      mmSortingField = sorting
+    }
+  }
+}
+```
+
+### Configuration Fields
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `sourceField` | No | Field name in snake_case | Database column in the source table containing the relation reference |
+| `targetType` | Yes | - | GraphQL type name of the related entity (must exist in `tableMapping`) |
+| `storageType` | No | `uid` | How the relation is stored: `uid`, `commaSeparated`, or `mmTable` |
+| `mmTable` | For MM only | - | Name of the MM (many-to-many) intermediary table |
+| `mmSourceField` | For MM only | `uid_local` | Column in MM table referencing source record |
+| `mmTargetField` | For MM only | `uid_foreign` | Column in MM table referencing target record |
+| `mmSortingField` | For MM only | `sorting` | Column in MM table for sorting order |
+
+### Storage Types
+
+#### 1. Single UID (`uid`)
+
+Use when a database column contains a single UID reference.
+
+**Database structure:**
+```
+tx_taxonomy table:
+  uid: 1
+  name: "Computer Science"
+  main_discipline: 42  ← Single UID
+```
+
+**GraphQL schema:**
+```graphql
+type Taxonomy {
+  name: String
+  mainDiscipline: Discipline
+}
+```
+
+**Configuration:**
+```typoscript
+relations {
+  Taxonomy.mainDiscipline {
+    sourceField = main_discipline
+    targetType = Discipline
+    storageType = uid
+  }
+}
+```
+
+#### 2. Comma-Separated UIDs (`commaSeparated`)
+
+Use when a database column contains multiple UIDs as a comma-separated string.
+
+**Database structure:**
+```
+tx_taxonomy table:
+  uid: 1
+  name: "Computer Science"
+  disciplines: "12,45,78"  ← Comma-separated UIDs
+```
+
+**GraphQL schema:**
+```graphql
+type Taxonomy {
+  name: String
+  disciplines: [Discipline]
+}
+```
+
+**Configuration:**
+```typoscript
+relations {
+  Taxonomy.disciplines {
+    sourceField = disciplines
+    targetType = Discipline
+    storageType = commaSeparated
+  }
+}
+```
+
+#### 3. MM Table (`mmTable`)
+
+Use for many-to-many relations stored via an intermediary MM table.
+
+**Database structure:**
+```
+tx_expert table:
+  uid: 5
+  name: "Dr. Smith"
+
+tx_expert_discipline_mm table:
+  uid_local: 5      ← References expert
+  uid_foreign: 12   ← References discipline
+  sorting: 1
+
+tx_discipline table:
+  uid: 12
+  name: "Physics"
+```
+
+**GraphQL schema:**
+```graphql
+type Expert {
+  name: String
+  disciplines: [Discipline]
+}
+```
+
+**Configuration:**
+```typoscript
+relations {
+  Expert.disciplines {
+    targetType = Discipline
+    storageType = mmTable
+    mmTable = tx_expert_discipline_mm
+    mmSourceField = uid_local
+    mmTargetField = uid_foreign
+    mmSortingField = sorting
+  }
+}
+```
+
+### Complete Configuration Example
+
+Here's a complete example with multiple relation types:
+
+```typoscript
+# TypoGraph extension configuration
+plugin.tx_typograph.settings {
+
+  # Schema files
+  schemaFiles {
+    0 = EXT:pkf_website/Resources/Private/Schemas/Query.graphql
+    1 = EXT:pkf_website/Resources/Private/Schemas/Taxonomy.graphql
+    2 = EXT:pkf_website/Resources/Private/Schemas/Discipline.graphql
+    3 = EXT:pkf_website/Resources/Private/Schemas/Expert.graphql
+  }
+
+  # Root elements to tables mapping
+  tableMapping {
+    disciplines = tx_dmdb_domain_model_discipline
+    experts = tx_academy_domain_model_persons
+    taxonomies = tx_dmdb_domain_model_discipline_taxonomy
+  }
+
+  # Relation configuration
+  relations {
+
+    # Single UID relation
+    Taxonomy.mainDiscipline {
+      sourceField = main_discipline
+      targetType = Discipline
+      storageType = uid
+    }
+
+    # Comma-separated UIDs relation
+    Taxonomy.disciplines {
+      sourceField = disciplines
+      targetType = Discipline
+      storageType = commaSeparated
+    }
+
+    # MM table relation
+    Expert.disciplines {
+      targetType = Discipline
+      storageType = mmTable
+      mmTable = tx_academy_persons_discipline_mm
+      mmSourceField = uid_local
+      mmTargetField = uid_foreign
+      mmSortingField = sorting
+    }
+  }
+}
+```
+
+### GraphQL Query Example
+
+With the configuration above, you can now query nested relations:
+
+```graphql
+{
+  taxonomies {
+    name
+    disciplines {
+      name
+    }
+  }
+
+  experts(limit: 10) {
+    familyName
+    givenName
+    disciplines {
+      name
+    }
+  }
+}
+```
+
+### Performance Characteristics
+
+TypoGraph implements a **DataLoader pattern** to prevent N+1 query problems:
+
+1. **Batch Loading**: All related records are fetched in a single optimized query per relation type
+2. **Request-Scoped Caching**: Each record is loaded only once per GraphQL request
+3. **Field Selection**: Only fields requested in the GraphQL query are fetched from the database
+4. **Order Preservation**: Related records are returned in the same order as stored (respects MM table sorting)
+
+**Example**: Querying 100 taxonomies with disciplines results in only **2 database queries**:
+- 1 query for all taxonomies
+- 1 query for all unique disciplines referenced by those taxonomies
+
+### Error Handling
+
+TypoGraph logs helpful warnings and errors when relations are misconfigured:
+
+- **Missing configuration**: "Relation Taxonomy.disciplines is not configured in TypoScript"
+- **Missing targetType**: "Relation Taxonomy.disciplines is missing targetType configuration"
+- **Unmapped target**: "Target type Discipline is not mapped to a table in tableMapping"
+- **Missing MM table**: "Relation Expert.disciplines with storageType=mmTable is missing mmTable configuration"
+
+Check your TYPO3 logs if relations return `null` or empty arrays unexpectedly.
+
 ## AI Disclaimer
 
 The initial basic extension design has been completely done by humans. However, developers of this extension use Claude Code (Sonnet 4.5) to streamline routine tasks, upgrades, improve code quality etc. All changes depending on AI (as far as we are aware) are confirmed by a qualified human software developer before merged into the `main` branch. For transparency, all our prompts are documented in the `prompts.md` file.
