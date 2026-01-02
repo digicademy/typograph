@@ -452,8 +452,260 @@ GRAPHQL;
     }
 
     // =========================================================================
+    // Relation Resolution Tests
+    // =========================================================================
+
+    public function testIsRelationFieldDetectsObjectType(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { name: String disciplines: [Discipline] } type Discipline { name: String }';
+        $this->setupServiceWithSchema($schema);
+
+        // Create ResolveInfo for an object field
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $this->makeEmpty(\GraphQL\Type\Definition\ListOfType::class, [
+                'getWrappedType' => $this->makeEmpty(ObjectType::class),
+            ]),
+        ]);
+
+        $result = $this->invokePrivateMethod($this->service, 'isRelationField', [$resolveInfo]);
+        verify($result)->true();
+    }
+
+    public function testIsRelationFieldReturnsFalseForScalar(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { name: String }';
+        $this->setupServiceWithSchema($schema);
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $this->makeEmpty(\GraphQL\Type\Definition\StringType::class),
+        ]);
+
+        $result = $this->invokePrivateMethod($this->service, 'isRelationField', [$resolveInfo]);
+        verify($result)->false();
+    }
+
+    public function testResolveUidRelation(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { discipline: Discipline } type Discipline { name: String }';
+
+        $settings = [
+            'schemaFiles' => [],
+            'tableMapping' => [
+                'taxonomy' => 'tx_taxonomy',
+                'Discipline' => 'tx_discipline',
+            ],
+            'relations' => [
+                'Taxonomy.discipline' => [
+                    'sourceField' => 'discipline',
+                    'targetType' => 'Discipline',
+                    'storageType' => 'uid',
+                ],
+            ],
+        ];
+
+        $this->setupServiceWithSettings($settings, $schema);
+
+        $queryBuilder = $this->createMockQueryBuilder([['uid' => 5, 'name' => 'Computer Science']]);
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $resolveInfo = $this->createMockResolveInfo(['name' => true], 'discipline');
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'getFieldSelection' => ['name' => true],
+            'fieldName' => 'discipline',
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolveUidRelation',
+            ['tx_discipline', 5, $resolveInfo]
+        );
+
+        verify($result)->isArray();
+        verify($result['name'])->equals('Computer Science');
+    }
+
+    public function testResolveCommaSeparatedRelation(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { disciplines: [Discipline] } type Discipline { name: String }';
+
+        $settings = [
+            'schemaFiles' => [],
+            'tableMapping' => [
+                'taxonomy' => 'tx_taxonomy',
+                'Discipline' => 'tx_discipline',
+            ],
+            'relations' => [
+                'Taxonomy.disciplines' => [
+                    'sourceField' => 'disciplines',
+                    'targetType' => 'Discipline',
+                    'storageType' => 'commaSeparated',
+                ],
+            ],
+        ];
+
+        $this->setupServiceWithSettings($settings, $schema);
+
+        $queryBuilder = $this->createMockQueryBuilder([
+            ['uid' => 1, 'name' => 'Math'],
+            ['uid' => 2, 'name' => 'Physics'],
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $resolveInfo = $this->createMockResolveInfo(['name' => true], 'disciplines');
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolveCommaSeparatedRelation',
+            ['tx_discipline', '1,2', $resolveInfo]
+        );
+
+        verify($result)->isArray();
+        verify(count($result))->equals(2);
+    }
+
+    public function testBatchLoadRecordsAvoidsNPlusOne(): void
+    {
+        $schema = 'type Query { test: String }';
+        $this->setupServiceWithSchema($schema);
+
+        $queryCallCount = 0;
+        $queryBuilder = $this->makeEmpty(QueryBuilder::class, [
+            'select' => function () use (&$queryBuilder) {
+                return $queryBuilder;
+            },
+            'from' => function () use (&$queryBuilder) {
+                return $queryBuilder;
+            },
+            'where' => function () use (&$queryBuilder) {
+                return $queryBuilder;
+            },
+            'expr' => $this->makeEmpty(ExpressionBuilder::class, [
+                'in' => function () {
+                    return 'mock_condition';
+                },
+            ]),
+            'executeQuery' => function () use (&$queryCallCount) {
+                $queryCallCount++;
+                $statement = $this->makeEmpty(\Doctrine\DBAL\Result::class, [
+                    'fetchAllAssociative' => [
+                        ['uid' => 1, 'name' => 'Record 1'],
+                        ['uid' => 2, 'name' => 'Record 2'],
+                        ['uid' => 3, 'name' => 'Record 3'],
+                    ],
+                ]);
+                return $statement;
+            },
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $resolveInfo = $this->createMockResolveInfo(['name' => true]);
+
+        // First call - should execute query
+        $result1 = $this->invokePrivateMethod(
+            $this->service,
+            'batchLoadRecords',
+            ['tx_test', [1, 2, 3], $resolveInfo]
+        );
+
+        verify($queryCallCount)->equals(1);
+        verify(count($result1))->equals(3);
+
+        // Second call with same UIDs - should use cache, not execute query again
+        $result2 = $this->invokePrivateMethod(
+            $this->service,
+            'batchLoadRecords',
+            ['tx_test', [1, 2], $resolveInfo]
+        );
+
+        verify($queryCallCount)->equals(1); // Still 1, not 2!
+        verify(count($result2))->equals(2);
+    }
+
+    public function testResolveRelationWithMissingConfig(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { disciplines: [Discipline] } type Discipline { name: String }';
+
+        $settings = [
+            'schemaFiles' => [],
+            'tableMapping' => ['taxonomy' => 'tx_taxonomy'],
+            'relations' => [], // No relation config
+        ];
+
+        $this->setupServiceWithSettings($settings, $schema);
+
+        $loggerCalled = false;
+        $this->logger = $this->makeEmpty(LoggerInterface::class, [
+            'warning' => function ($message) use (&$loggerCalled) {
+                $loggerCalled = true;
+                verify($message)->stringContainsString('Taxonomy.disciplines');
+                verify($message)->stringContainsString('not configured');
+            },
+        ]);
+
+        $this->service = $this->createService();
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'parentType' => $this->makeEmpty(ObjectType::class, ['name' => 'Taxonomy']),
+            'fieldName' => 'disciplines',
+            'returnType' => $this->makeEmpty(\GraphQL\Type\Definition\ListOfType::class),
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolveRelation',
+            [['discipline' => '1'], $resolveInfo]
+        );
+
+        verify($result)->null();
+        verify($loggerCalled)->true();
+    }
+
+    // =========================================================================
     // Helper Methods
     // =========================================================================
+
+    private function setupServiceWithSettings(array $settings, string $schemaContent): void
+    {
+        $this->configurationManager = $this->makeEmpty(
+            ConfigurationManagerInterface::class,
+            [
+                'getConfiguration' => $settings,
+            ]
+        );
+
+        $this->cache = $this->makeEmpty(
+            FrontendInterface::class,
+            [
+                'has' => false,
+                'set' => function () {
+                },
+            ]
+        );
+
+        $schema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schemaContent)
+        );
+
+        $this->service = $this->construct(
+            ResolverService::class,
+            $this->getServiceConstructorArgs(),
+            ['getSchema' => $schema]
+        );
+    }
 
     private function setupServiceWithSchema(string $schemaContent): void
     {
