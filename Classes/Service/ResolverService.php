@@ -206,9 +206,9 @@ class ResolverService
      * will be loaded from the available file(s) and written to the cache before
      * passed on. Otherwise, they'll be directly fetched from the cache.
      *
-     * Developer note: because the TYPO3 cache can handle object, we can store
+     * Developer note: because the TYPO3 cache can handle objects, we can store
      * the document object directly and do not have to convert to/from an array
-     * as in the graphql-php example.
+     * like it is done in the graphql-php example.
      *
      * @see https://webonyx.github.io/graphql-php/schema-definition-language/#performance-considerations
      * @return Schema
