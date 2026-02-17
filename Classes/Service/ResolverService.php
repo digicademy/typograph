@@ -29,6 +29,8 @@ namespace Digicademy\TypoGraph\Service;
 use Exception;
 use GraphQL\GraphQL;
 use GraphQL\Language\Parser;
+use GraphQL\Type\Definition\ListOfType;
+use GraphQL\Type\Definition\ObjectType;
 use GraphQL\Type\Definition\ResolveInfo;
 use GraphQL\Type\Schema;
 use GraphQL\Utils\BuildSchema;
@@ -54,6 +56,22 @@ class ResolverService
      */
     protected array $tableMapping;
 
+    /**
+     * @var array<string, array<string, mixed>>
+     */
+    protected array $relations;
+
+    /**
+     * @var Schema|null
+     */
+    protected ?Schema $schema = null;
+
+    /**
+     * Batch loader cache for relations to avoid N+1 queries
+     * @var array<string, array<int|string, mixed>>
+     */
+    protected array $batchCache = [];
+
     public function __construct(
         private readonly ConnectionPool $connectionPool,
         private readonly ConfigurationManagerInterface $configurationManager,
@@ -67,6 +85,41 @@ class ResolverService
 
         $this->schemaFiles = $settings['schemaFiles'] ?? [];
         $this->tableMapping = $settings['tableMapping'] ?? [];
+        $this->relations = $this->flattenRelationsConfig($settings['relations'] ?? []);
+    }
+
+    /**
+     * Flatten nested TypoScript relation configuration into dot-separated keys
+     *
+     * TypoScript parses "Taxonomy.disciplines" as nested arrays:
+     * ['Taxonomy' => ['disciplines' => [...]]]
+     *
+     * This method flattens it to:
+     * ['Taxonomy.disciplines' => [...]]
+     *
+     * @param array<string, mixed> $relations
+     * @return array<string, array<string, mixed>>
+     */
+    protected function flattenRelationsConfig(array $relations): array
+    {
+        $flattened = [];
+
+        foreach ($relations as $typeName => $fields) {
+            if (!is_array($fields)) {
+                continue;
+            }
+
+            foreach ($fields as $fieldName => $config) {
+                if (!is_array($config)) {
+                    continue;
+                }
+
+                $key = "{$typeName}.{$fieldName}";
+                $flattened[$key] = $config;
+            }
+        }
+
+        return $flattened;
     }
 
     public function process(string $json): mixed
@@ -101,7 +154,7 @@ class ResolverService
             $output = null;
         }
 
-        return json_encode($output);
+        return json_encode($output, JSON_UNESCAPED_SLASHES);
     }
 
     /**
@@ -135,6 +188,10 @@ class ResolverService
      */
     protected function getSchema(): Schema
     {
+        if ($this->schema !== null) {
+            return $this->schema;
+        }
+
         if (Environment::getContext()->isDevelopment()) {
             $document = Parser::parse($this->readSchemaFiles());
         } else {
@@ -150,7 +207,8 @@ class ResolverService
             }
         }
 
-        return BuildSchema::build($document);
+        $this->schema = BuildSchema::build($document);
+        return $this->schema;
     }
 
     /**
@@ -210,10 +268,7 @@ class ResolverService
 
                 // We only want to fetch fields we need.
                 // @see https://webonyx.github.io/graphql-php/data-fetching/#optimize-resolvers
-                $fields = [];
-                foreach ($info->getFieldSelection(1) as $field => $_) {
-                    array_push($fields, GeneralUtility::camelCaseToLowerCaseUnderscored($field));
-                }
+                $fields = $this->getScalarFieldsFromSelection($info);
                 $queryBuilder
                     ->select(...$fields)
                     ->from($rootTable);
@@ -246,9 +301,384 @@ class ResolverService
         }
 
         // Nested field resolution (Model.foo, Model.bar, etc.)
+        // Check if this field is a relation
+        if ($this->isRelationField($info)) {
+            return $this->resolveRelation($root, $info);
+        }
+
         // Convert camelCase field name to snake_case and look it up in the array
         $fieldName = $info->fieldName;
         $snakeCaseFieldName = GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
         return $root[$snakeCaseFieldName];
+    }
+
+    /**
+     * Check if a field represents a relation based on its type
+     *
+     * @param ResolveInfo $info
+     * @return bool
+     */
+    protected function isRelationField(ResolveInfo $info): bool
+    {
+        $type = $info->returnType;
+
+        // Unwrap ListOfType to get to the actual type
+        if ($type instanceof ListOfType) {
+            $type = $type->getWrappedType();
+        }
+
+        // Check if it's an ObjectType (not a scalar)
+        return $type instanceof ObjectType;
+    }
+
+    /**
+     * Resolve a relation field
+     *
+     * @param array<string, mixed> $root Parent record data
+     * @param ResolveInfo $info Field resolution info
+     * @return mixed
+     */
+    protected function resolveRelation(array $root, ResolveInfo $info)
+    {
+        $parentType = $info->parentType->name;
+        $fieldName = $info->fieldName;
+        $relationKey = "{$parentType}.{$fieldName}";
+
+        // Check if relation is configured
+        if (!isset($this->relations[$relationKey])) {
+            $this->logger->warning(
+                "Relation {$relationKey} is not configured in TypoScript. " .
+                "Please add configuration under plugin.tx_typograph.settings.relations.{$relationKey}"
+            );
+            return null;
+        }
+
+        $relationConfig = $this->relations[$relationKey];
+        $isList = $info->returnType instanceof ListOfType;
+
+        // Determine storage type
+        $storageType = $relationConfig['storageType'] ?? 'uid';
+
+        // For uid and commaSeparated, we need a source field value
+        // For foreignKey and mmTable, we use the parent UID directly
+        if (in_array($storageType, ['uid', 'commaSeparated'])) {
+            // Get the source field (column) name
+            $sourceField = $relationConfig['sourceField'] ?? GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
+            $sourceValue = $root[$sourceField] ?? null;
+
+            if ($sourceValue === null || $sourceValue === '') {
+                return $isList ? [] : null;
+            }
+        }
+
+        // Get target table
+        $targetType = $relationConfig['targetType'] ?? null;
+        if ($targetType === null) {
+            $this->logger->error("Relation {$relationKey} is missing targetType configuration");
+            return $isList ? [] : null;
+        }
+
+        $targetTable = $this->tableMapping[$targetType] ?? null;
+        if ($targetTable === null) {
+            $this->logger->error("Target type {$targetType} is not mapped to a table in tableMapping");
+            return $isList ? [] : null;
+        }
+
+        try {
+            switch ($storageType) {
+                case 'uid':
+                    return $this->resolveUidRelation($targetTable, (int)$sourceValue, $info);
+
+                case 'commaSeparated':
+                    return $this->resolveCommaSeparatedRelation($targetTable, (string)$sourceValue, $info);
+
+                case 'mmTable':
+                    $mmTable = $relationConfig['mmTable'] ?? null;
+                    if ($mmTable === null) {
+                        $this->logger->error("Relation {$relationKey} with storageType=mmTable is missing mmTable configuration");
+                        return [];
+                    }
+                    return $this->resolveMmRelation(
+                        $targetTable,
+                        $mmTable,
+                        (int)$root['uid'],
+                        $relationConfig,
+                        $info
+                    );
+
+                case 'foreignKey':
+                    $foreignKeyField = $relationConfig['foreignKeyField'] ?? null;
+                    if ($foreignKeyField === null) {
+                        $this->logger->error("Relation {$relationKey} with storageType=foreignKey is missing foreignKeyField configuration");
+                        return [];
+                    }
+                    return $this->resolveForeignKeyRelation(
+                        $targetTable,
+                        $foreignKeyField,
+                        (int)$root['uid'],
+                        $info
+                    );
+
+                default:
+                    $this->logger->error("Unknown storage type: {$storageType} for relation {$relationKey}");
+                    return $isList ? [] : null;
+            }
+        } catch (Exception $e) {
+            $this->logger->error("Error resolving relation {$relationKey}: " . $e->getMessage());
+            return $isList ? [] : null;
+        }
+    }
+
+    /**
+     * Resolve a single UID relation
+     *
+     * @param string $targetTable
+     * @param int $uid
+     * @param ResolveInfo $info
+     * @return array<string, mixed>|null
+     */
+    protected function resolveUidRelation(string $targetTable, int $uid, ResolveInfo $info): ?array
+    {
+        $cacheKey = "{$targetTable}:{$uid}";
+
+        if (!isset($this->batchCache[$cacheKey])) {
+            $queryBuilder = $this->connectionPool->getQueryBuilderForTable($targetTable);
+            $fields = $this->getRequestedFields($info);
+
+            $result = $queryBuilder
+                ->select(...$fields)
+                ->from($targetTable)
+                ->where($queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid)))
+                ->executeQuery()
+                ->fetchAssociative();
+
+            $this->batchCache[$cacheKey] = $result !== false ? $result : null;
+        }
+
+        return $this->batchCache[$cacheKey];
+    }
+
+    /**
+     * Resolve comma-separated UIDs relation
+     *
+     * @param string $targetTable
+     * @param string $uids Comma-separated UIDs
+     * @param ResolveInfo $info
+     * @return array<array<string, mixed>>
+     */
+    protected function resolveCommaSeparatedRelation(string $targetTable, string $uids, ResolveInfo $info): array
+    {
+        $uidArray = array_filter(array_map('intval', explode(',', $uids)));
+
+        if (empty($uidArray)) {
+            return [];
+        }
+
+        return $this->batchLoadRecords($targetTable, $uidArray, $info);
+    }
+
+    /**
+     * Resolve MM table relation
+     *
+     * @param string $targetTable
+     * @param string $mmTable
+     * @param int $sourceUid
+     * @param array<string, mixed> $relationConfig
+     * @param ResolveInfo $info
+     * @return array<array<string, mixed>>
+     */
+    protected function resolveMmRelation(
+        string $targetTable,
+        string $mmTable,
+        int $sourceUid,
+        array $relationConfig,
+        ResolveInfo $info
+    ): array {
+        $mmSourceField = $relationConfig['mmSourceField'] ?? 'uid_local';
+        $mmTargetField = $relationConfig['mmTargetField'] ?? 'uid_foreign';
+        $mmSortingField = $relationConfig['mmSortingField'] ?? 'sorting';
+
+        // Query MM table to get target UIDs
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($mmTable);
+        $mmRecords = $queryBuilder
+            ->select($mmTargetField, $mmSortingField)
+            ->from($mmTable)
+            ->where($queryBuilder->expr()->eq($mmSourceField, $queryBuilder->createNamedParameter($sourceUid)))
+            ->orderBy($mmSortingField)
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        if (empty($mmRecords)) {
+            return [];
+        }
+
+        $targetUids = array_column($mmRecords, $mmTargetField);
+
+        return $this->batchLoadRecords($targetTable, $targetUids, $info);
+    }
+
+    /**
+     * Resolve foreign key relation (inverse relation)
+     *
+     * Used when the target table has a foreign key field pointing back to the source record.
+     * This handles "sloppy MM" scenarios where multiple target records reference the same
+     * source record via a foreign key column.
+     *
+     * @param string $targetTable Target table to query
+     * @param string $foreignKeyField Column in target table that references source UID
+     * @param int $sourceUid UID of the source record
+     * @param ResolveInfo $info Field resolution info
+     * @return array<array<string, mixed>>
+     */
+    protected function resolveForeignKeyRelation(
+        string $targetTable,
+        string $foreignKeyField,
+        int $sourceUid,
+        ResolveInfo $info
+    ): array {
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($targetTable);
+        $fields = $this->getRequestedFields($info);
+
+        $records = $queryBuilder
+            ->select(...$fields)
+            ->from($targetTable)
+            ->where($queryBuilder->expr()->eq($foreignKeyField, $queryBuilder->createNamedParameter($sourceUid)))
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        // Cache individual records for potential reuse
+        foreach ($records as $record) {
+            $cacheKey = "{$targetTable}:{$record['uid']}";
+            $this->batchCache[$cacheKey] = $record;
+        }
+
+        return $records;
+    }
+
+    /**
+     * Batch load records by UIDs to avoid N+1 queries
+     *
+     * @param string $table
+     * @param array<int> $uids
+     * @param ResolveInfo $info
+     * @return array<array<string, mixed>>
+     */
+    protected function batchLoadRecords(string $table, array $uids, ResolveInfo $info): array
+    {
+        $uids = array_unique($uids);
+        $uncachedUids = [];
+        $results = [];
+
+        // Check which UIDs are already cached
+        foreach ($uids as $uid) {
+            $cacheKey = "{$table}:{$uid}";
+            if (isset($this->batchCache[$cacheKey])) {
+                $results[$uid] = $this->batchCache[$cacheKey];
+            } else {
+                $uncachedUids[] = $uid;
+            }
+        }
+
+        // Fetch uncached records in a single query
+        if (!empty($uncachedUids)) {
+            $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
+            $fields = $this->getRequestedFields($info);
+
+            $fetchedRecords = $queryBuilder
+                ->select(...$fields)
+                ->from($table)
+                ->where($queryBuilder->expr()->in('uid', $uncachedUids))
+                ->executeQuery()
+                ->fetchAllAssociative();
+
+            // Cache and index by UID
+            foreach ($fetchedRecords as $record) {
+                $uid = (int)$record['uid'];
+                $cacheKey = "{$table}:{$uid}";
+                $this->batchCache[$cacheKey] = $record;
+                $results[$uid] = $record;
+            }
+        }
+
+        // Return records in the same order as requested UIDs
+        $orderedResults = [];
+        foreach ($uids as $uid) {
+            if (isset($results[$uid])) {
+                $orderedResults[] = $results[$uid];
+            }
+        }
+
+        return $orderedResults;
+    }
+
+    /**
+     * Get the list of fields requested in the GraphQL query
+     *
+     * @param ResolveInfo $info
+     * @return array<string>
+     */
+    protected function getRequestedFields(ResolveInfo $info): array
+    {
+        $fields = ['uid']; // Always include UID for caching
+
+        foreach ($info->getFieldSelection(1) as $field => $_) {
+            $snakeCaseField = GeneralUtility::camelCaseToLowerCaseUnderscored($field);
+            if (!in_array($snakeCaseField, $fields)) {
+                $fields[] = $snakeCaseField;
+            }
+        }
+
+        return $fields;
+    }
+
+    /**
+     * Get only scalar (non-relation) fields from the GraphQL selection
+     *
+     * This filters out object-type fields (relations) that should not be included
+     * in the SELECT query for the root table.
+     *
+     * @param ResolveInfo $info
+     * @return array<string>
+     */
+    protected function getScalarFieldsFromSelection(ResolveInfo $info): array
+    {
+        $fields = ['uid']; // Always include UID
+
+        $parentType = $info->returnType;
+
+        // Unwrap ListOfType to get the actual object type
+        if ($parentType instanceof ListOfType) {
+            $parentType = $parentType->getWrappedType();
+        }
+
+        // Get all fields from the parent type definition
+        if ($parentType instanceof ObjectType) {
+            $typeFields = $parentType->getFields();
+
+            foreach ($info->getFieldSelection(1) as $fieldName => $_) {
+                // Skip if field doesn't exist in type definition
+                if (!isset($typeFields[$fieldName])) {
+                    continue;
+                }
+
+                $fieldDef = $typeFields[$fieldName];
+                $fieldType = $fieldDef->getType();
+
+                // Unwrap ListOfType if present
+                if ($fieldType instanceof ListOfType) {
+                    $fieldType = $fieldType->getWrappedType();
+                }
+
+                // Only include if it's NOT an ObjectType (i.e., it's a scalar)
+                if (!($fieldType instanceof ObjectType)) {
+                    $snakeCaseField = GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
+                    if (!in_array($snakeCaseField, $fields)) {
+                        $fields[] = $snakeCaseField;
+                    }
+                }
+            }
+        }
+
+        return $fields;
     }
 }

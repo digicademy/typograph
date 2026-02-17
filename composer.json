@@ -42,5 +42,8 @@
     "typo3/cms": {
       "extension-key": "typograph"
     }
+  },
+  "config": {
+    "allow-plugins": true
   }
 }

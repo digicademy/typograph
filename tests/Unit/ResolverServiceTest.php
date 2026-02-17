@@ -452,8 +452,490 @@ GRAPHQL;
     }
 
     // =========================================================================
+    // Relation Resolution Tests
+    // =========================================================================
+
+    public function testIsRelationFieldDetectsObjectType(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { name: String disciplines: [Discipline] } type Discipline { name: String }';
+        $this->setupServiceWithSchema($schema);
+
+        // Create ResolveInfo for an object field
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $this->makeEmpty(\GraphQL\Type\Definition\ListOfType::class, [
+                'getWrappedType' => $this->makeEmpty(ObjectType::class),
+            ]),
+        ]);
+
+        $result = $this->invokePrivateMethod($this->service, 'isRelationField', [$resolveInfo]);
+        verify($result)->true();
+    }
+
+    public function testIsRelationFieldReturnsFalseForScalar(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { name: String }';
+        $this->setupServiceWithSchema($schema);
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $this->makeEmpty(\GraphQL\Type\Definition\StringType::class),
+        ]);
+
+        $result = $this->invokePrivateMethod($this->service, 'isRelationField', [$resolveInfo]);
+        verify($result)->false();
+    }
+
+    public function testResolveUidRelation(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { discipline: Discipline } type Discipline { name: String }';
+
+        $settings = [
+            'schemaFiles' => [],
+            'tableMapping' => [
+                'taxonomy' => 'tx_taxonomy',
+                'Discipline' => 'tx_discipline',
+            ],
+            'relations' => [
+                'Taxonomy.discipline' => [
+                    'sourceField' => 'discipline',
+                    'targetType' => 'Discipline',
+                    'storageType' => 'uid',
+                ],
+            ],
+        ];
+
+        $this->setupServiceWithSettings($settings, $schema);
+
+        $queryBuilder = $this->createMockQueryBuilder([['uid' => 5, 'name' => 'Computer Science']]);
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $resolveInfo = $this->createMockResolveInfo(['name' => true], 'discipline');
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'getFieldSelection' => ['name' => true],
+            'fieldName' => 'discipline',
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolveUidRelation',
+            ['tx_discipline', 5, $resolveInfo]
+        );
+
+        verify($result)->isArray();
+        verify($result['name'])->equals('Computer Science');
+    }
+
+    public function testResolveCommaSeparatedRelation(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { disciplines: [Discipline] } type Discipline { name: String }';
+
+        $settings = [
+            'schemaFiles' => [],
+            'tableMapping' => [
+                'taxonomy' => 'tx_taxonomy',
+                'Discipline' => 'tx_discipline',
+            ],
+            'relations' => [
+                'Taxonomy.disciplines' => [
+                    'sourceField' => 'disciplines',
+                    'targetType' => 'Discipline',
+                    'storageType' => 'commaSeparated',
+                ],
+            ],
+        ];
+
+        $this->setupServiceWithSettings($settings, $schema);
+
+        $queryBuilder = $this->createMockQueryBuilder([
+            ['uid' => 1, 'name' => 'Math'],
+            ['uid' => 2, 'name' => 'Physics'],
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $resolveInfo = $this->createMockResolveInfo(['name' => true], 'disciplines');
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolveCommaSeparatedRelation',
+            ['tx_discipline', '1,2', $resolveInfo]
+        );
+
+        verify($result)->isArray();
+        verify(count($result))->equals(2);
+    }
+
+    public function testBatchLoadRecordsAvoidsNPlusOne(): void
+    {
+        $schema = 'type Query { test: String }';
+        $this->setupServiceWithSchema($schema);
+
+        $queryCallCount = 0;
+        $queryBuilder = $this->makeEmpty(QueryBuilder::class, [
+            'select' => function () use (&$queryBuilder) {
+                return $queryBuilder;
+            },
+            'from' => function () use (&$queryBuilder) {
+                return $queryBuilder;
+            },
+            'where' => function () use (&$queryBuilder) {
+                return $queryBuilder;
+            },
+            'expr' => $this->makeEmpty(ExpressionBuilder::class, [
+                'in' => function () {
+                    return 'mock_condition';
+                },
+            ]),
+            'executeQuery' => function () use (&$queryCallCount) {
+                $queryCallCount++;
+                $statement = $this->makeEmpty(\Doctrine\DBAL\Result::class, [
+                    'fetchAllAssociative' => [
+                        ['uid' => 1, 'name' => 'Record 1'],
+                        ['uid' => 2, 'name' => 'Record 2'],
+                        ['uid' => 3, 'name' => 'Record 3'],
+                    ],
+                ]);
+                return $statement;
+            },
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $resolveInfo = $this->createMockResolveInfo(['name' => true]);
+
+        // First call - should execute query
+        $result1 = $this->invokePrivateMethod(
+            $this->service,
+            'batchLoadRecords',
+            ['tx_test', [1, 2, 3], $resolveInfo]
+        );
+
+        verify($queryCallCount)->equals(1);
+        verify(count($result1))->equals(3);
+
+        // Second call with same UIDs - should use cache, not execute query again
+        $result2 = $this->invokePrivateMethod(
+            $this->service,
+            'batchLoadRecords',
+            ['tx_test', [1, 2], $resolveInfo]
+        );
+
+        verify($queryCallCount)->equals(1); // Still 1, not 2!
+        verify(count($result2))->equals(2);
+    }
+
+    public function testResolveRelationWithMissingConfig(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { disciplines: [Discipline] } type Discipline { name: String }';
+
+        $settings = [
+            'schemaFiles' => [],
+            'tableMapping' => ['taxonomy' => 'tx_taxonomy'],
+            'relations' => [], // No relation config
+        ];
+
+        $this->setupServiceWithSettings($settings, $schema);
+
+        $loggerCalled = false;
+        $this->logger = $this->makeEmpty(LoggerInterface::class, [
+            'warning' => function ($message) use (&$loggerCalled) {
+                $loggerCalled = true;
+                verify($message)->stringContainsString('Taxonomy.disciplines');
+                verify($message)->stringContainsString('not configured');
+            },
+        ]);
+
+        $this->service = $this->createService();
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'parentType' => $this->makeEmpty(ObjectType::class, ['name' => 'Taxonomy']),
+            'fieldName' => 'disciplines',
+            'returnType' => $this->makeEmpty(\GraphQL\Type\Definition\ListOfType::class),
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolveRelation',
+            [['discipline' => '1'], $resolveInfo]
+        );
+
+        verify($result)->null();
+        verify($loggerCalled)->true();
+    }
+
+    public function testResolveForeignKeyRelation(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { disciplines: [Discipline] } type Discipline { name: String }';
+
+        $settings = [
+            'schemaFiles' => [],
+            'tableMapping' => [
+                'taxonomy' => 'tx_taxonomy',
+                'Discipline' => 'tx_discipline',
+            ],
+            'relations' => [
+                'Taxonomy.disciplines' => [
+                    'targetType' => 'Discipline',
+                    'storageType' => 'foreignKey',
+                    'foreignKeyField' => 'discipline_taxonomy',
+                ],
+            ],
+        ];
+
+        $this->setupServiceWithSettings($settings, $schema);
+
+        // Mock query builder to return multiple disciplines with same name
+        $queryBuilder = $this->createMockQueryBuilder([
+            ['uid' => 1, 'name' => 'Physics', 'discipline_taxonomy' => 5],
+            ['uid' => 2, 'name' => 'Physics', 'discipline_taxonomy' => 5],
+            ['uid' => 3, 'name' => 'Mathematics', 'discipline_taxonomy' => 5],
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $resolveInfo = $this->createMockResolveInfo(['name' => true], 'disciplines');
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolveForeignKeyRelation',
+            ['tx_discipline', 'discipline_taxonomy', 5, $resolveInfo]
+        );
+
+        verify($result)->isArray();
+        verify(count($result))->equals(3);
+        verify($result[0]['name'])->equals('Physics');
+        verify($result[1]['name'])->equals('Physics'); // Duplicate name, different UID
+        verify($result[2]['name'])->equals('Mathematics');
+    }
+
+    public function testForeignKeyRelationCachesRecords(): void
+    {
+        $schema = 'type Query { test: String }';
+        $this->setupServiceWithSchema($schema);
+
+        $queryBuilder = $this->createMockQueryBuilder([
+            ['uid' => 10, 'name' => 'Record 10'],
+            ['uid' => 20, 'name' => 'Record 20'],
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $resolveInfo = $this->createMockResolveInfo(['name' => true]);
+
+        // Execute foreign key relation
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolveForeignKeyRelation',
+            ['tx_test', 'parent_id', 5, $resolveInfo]
+        );
+
+        verify(count($result))->equals(2);
+
+        // Verify records are cached - access via reflection
+        $reflection = new \ReflectionClass($this->service);
+        $property = $reflection->getProperty('batchCache');
+        $property->setAccessible(true);
+        $cache = $property->getValue($this->service);
+
+        verify(isset($cache['tx_test:10']))->true();
+        verify(isset($cache['tx_test:20']))->true();
+        verify($cache['tx_test:10']['name'])->equals('Record 10');
+    }
+
+    public function testGetScalarFieldsFromSelectionFiltersOutRelations(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { name: String disciplines: [Discipline] } type Discipline { name: String }';
+        $this->setupServiceWithSchema($schema);
+
+        // Build schema to get actual ObjectType
+        $parsedSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+
+        $taxonomyType = $parsedSchema->getType('Taxonomy');
+
+        // Create mock ResolveInfo with selection including both scalar and relation fields
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $this->makeEmpty(\GraphQL\Type\Definition\ListOfType::class, [
+                'getWrappedType' => $taxonomyType,
+            ]),
+            'getFieldSelection' => ['name' => true, 'disciplines' => true],
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'getScalarFieldsFromSelection',
+            [$resolveInfo]
+        );
+
+        // Should include 'uid' (always) and 'name' (scalar), but NOT 'disciplines' (relation)
+        verify($result)->arrayContains('uid');
+        verify($result)->arrayContains('name');
+        verify($result)->arrayNotContains('disciplines');
+        verify(count($result))->equals(2); // Only uid and name
+    }
+
+    public function testFlattenRelationsConfigConvertsNestedTypoScript(): void
+    {
+        $schema = 'type Query { test: String }';
+        $this->setupServiceWithSchema($schema);
+
+        // Simulate how TypoScript parses "Taxonomy.disciplines" as nested structure
+        $nestedConfig = [
+            'Taxonomy' => [
+                'disciplines' => [
+                    'targetType' => 'Discipline',
+                    'storageType' => 'foreignKey',
+                    'foreignKeyField' => 'discipline_taxonomy',
+                ],
+                'mainDiscipline' => [
+                    'targetType' => 'Discipline',
+                    'storageType' => 'uid',
+                    'sourceField' => 'main_discipline',
+                ],
+            ],
+            'Expert' => [
+                'disciplines' => [
+                    'targetType' => 'Discipline',
+                    'storageType' => 'mmTable',
+                    'mmTable' => 'tx_expert_discipline_mm',
+                ],
+            ],
+        ];
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'flattenRelationsConfig',
+            [$nestedConfig]
+        );
+
+        // Should flatten to dot-separated keys
+        verify(isset($result['Taxonomy.disciplines']))->true();
+        verify(isset($result['Taxonomy.mainDiscipline']))->true();
+        verify(isset($result['Expert.disciplines']))->true();
+
+        // Verify config values are preserved
+        verify($result['Taxonomy.disciplines']['targetType'])->equals('Discipline');
+        verify($result['Taxonomy.disciplines']['storageType'])->equals('foreignKey');
+        verify($result['Taxonomy.disciplines']['foreignKeyField'])->equals('discipline_taxonomy');
+
+        verify($result['Taxonomy.mainDiscipline']['targetType'])->equals('Discipline');
+        verify($result['Taxonomy.mainDiscipline']['storageType'])->equals('uid');
+
+        verify($result['Expert.disciplines']['storageType'])->equals('mmTable');
+        verify($result['Expert.disciplines']['mmTable'])->equals('tx_expert_discipline_mm');
+
+        // Should have exactly 3 flattened entries
+        verify(count($result))->equals(3);
+    }
+
+    public function testForeignKeyRelationDoesNotRequireSourceField(): void
+    {
+        $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { disciplines: [Discipline] } type Discipline { name: String }';
+
+        $settings = [
+            'schemaFiles' => [],
+            'tableMapping' => [
+                'taxonomy' => 'tx_taxonomy',
+                'Discipline' => 'tx_discipline',
+            ],
+            'relations' => [
+                'Taxonomy.disciplines' => [
+                    'targetType' => 'Discipline',
+                    'storageType' => 'foreignKey',
+                    'foreignKeyField' => 'discipline_taxonomy',
+                ],
+            ],
+        ];
+
+        $this->setupServiceWithSettings($settings, $schema);
+
+        // Parent record WITHOUT a 'disciplines' or 'discipline_taxonomy' field
+        // For foreignKey, this should still work because it uses parent UID
+        $parentRecord = ['uid' => 42, 'name' => 'Applied Sciences'];
+
+        $queryBuilder = $this->createMockQueryBuilder([
+            ['uid' => 1, 'name' => 'Physics', 'discipline_taxonomy' => 42],
+            ['uid' => 2, 'name' => 'Chemistry', 'discipline_taxonomy' => 42],
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'parentType' => $this->makeEmpty(ObjectType::class, ['name' => 'Taxonomy']),
+            'fieldName' => 'disciplines',
+            'returnType' => $this->makeEmpty(\GraphQL\Type\Definition\ListOfType::class),
+            'getFieldSelection' => ['name' => true],
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolveRelation',
+            [$parentRecord, $resolveInfo]
+        );
+
+        // Should return disciplines even though parent has no 'disciplines' field
+        verify($result)->isArray();
+        verify(count($result))->equals(2);
+        verify($result[0]['name'])->equals('Physics');
+        verify($result[1]['name'])->equals('Chemistry');
+    }
+
+    // =========================================================================
     // Helper Methods
     // =========================================================================
+
+    private function setupServiceWithSettings(array $settings, string $schemaContent): void
+    {
+        $this->configurationManager = $this->makeEmpty(
+            ConfigurationManagerInterface::class,
+            [
+                'getConfiguration' => $settings,
+            ]
+        );
+
+        $this->cache = $this->makeEmpty(
+            FrontendInterface::class,
+            [
+                'has' => false,
+                'set' => function () {
+                },
+            ]
+        );
+
+        $schema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schemaContent)
+        );
+
+        $this->service = $this->construct(
+            ResolverService::class,
+            $this->getServiceConstructorArgs(),
+            ['getSchema' => $schema]
+        );
+    }
 
     private function setupServiceWithSchema(string $schemaContent): void
     {
