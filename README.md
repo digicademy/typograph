@@ -368,4 +368,6 @@ Check your TYPO3 logs if relations return `null` or empty arrays unexpectedly.
 
 ## AI Disclaimer
 
-The initial basic extension design has been completely done by humans. However, developers of this extension use Claude Code (Sonnet 4.5) to streamline routine tasks, upgrades, improve code quality etc. All changes depending on AI (as far as we are aware) are confirmed by a qualified human software developer before merged into the `main` branch. For transparency, all our prompts are documented in the `prompts.md` file.
+The initial basic extension design has been completely done by humans. However, developers of this extension use Claude Code (Sonnet 4.5) to streamline routine tasks, upgrades, improve code quality etc. All changes depending on AI (as far as we are aware) are confirmed by a qualified human software developer before merged into the `main` branch.
+
+Initially, we were planning to document our prompts for increased transparency. Due to the iterative process of responsible software development with AI support, we soon found this to be unsustainable in terms of documentation load and abandoned this part of our workflow.
