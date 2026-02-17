@@ -926,6 +926,661 @@ GRAPHQL;
     }
 
     // =========================================================================
+    // Pagination Tests
+    // =========================================================================
+
+    public function testEncodeCursorProducesOpaqueString(): void
+    {
+        $this->setupServiceWithSchema('type Query { test: String }');
+
+        $cursor = $this->invokePrivateMethod($this->service, 'encodeCursor', [42]);
+        verify($cursor)->isString();
+        verify($cursor)->notEquals('42');
+
+        // Round-trip
+        $uid = $this->invokePrivateMethod($this->service, 'decodeCursor', [$cursor]);
+        verify($uid)->equals(42);
+    }
+
+    public function testDecodeCursorReturnsUid(): void
+    {
+        $this->setupServiceWithSchema('type Query { test: String }');
+
+        $cursor = base64_encode('cursor:99');
+        $uid = $this->invokePrivateMethod($this->service, 'decodeCursor', [$cursor]);
+        verify($uid)->equals(99);
+    }
+
+    public function testDecodeCursorThrowsOnInvalid(): void
+    {
+        $this->setupServiceWithSchema('type Query { test: String }');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->invokePrivateMethod($this->service, 'decodeCursor', ['garbage-string']);
+    }
+
+    public function testIsConnectionTypeDetectsConnectionSuffix(): void
+    {
+        $schema = <<<'GRAPHQL'
+type Query { experts(first: Int, after: String): ExpertConnection }
+type PageInfo { hasNextPage: Boolean! hasPreviousPage: Boolean! startCursor: String endCursor: String }
+type Expert { familyName: String }
+type ExpertConnection { edges: [ExpertEdge!]! pageInfo: PageInfo! totalCount: Int! }
+type ExpertEdge { cursor: String! node: Expert! }
+GRAPHQL;
+
+        $this->setupServiceWithSchema($schema);
+
+        $parsedSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+
+        $connectionType = $parsedSchema->getType('ExpertConnection');
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $connectionType,
+        ]);
+
+        $result = $this->invokePrivateMethod($this->service, 'isConnectionType', [$resolveInfo]);
+        verify($result)->true();
+    }
+
+    public function testIsConnectionTypeReturnsFalseForPlainList(): void
+    {
+        $schema = 'type Query { experts: [Expert] } type Expert { familyName: String }';
+        $this->setupServiceWithSchema($schema);
+
+        $parsedSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+
+        $expertType = $parsedSchema->getType('Expert');
+        $listType = new ListOfType($expertType);
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $listType,
+        ]);
+
+        $result = $this->invokePrivateMethod($this->service, 'isConnectionType', [$resolveInfo]);
+        verify($result)->false();
+    }
+
+    public function testResolveConnectionWithFirstArg(): void
+    {
+        $schema = $this->getConnectionSchema();
+        $settings = $this->getConnectionSettings();
+        $this->setupServiceWithSettings($settings, $schema);
+
+        // Return 3 records (first=2, so +1 extra to detect hasNextPage)
+        $queryBuilder = $this->createPaginatedQueryBuilder([
+            ['uid' => 1, 'family_name' => 'Alpha'],
+            ['uid' => 2, 'family_name' => 'Beta'],
+            ['uid' => 3, 'family_name' => 'Gamma'],
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $parsedSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+        $connectionType = $parsedSchema->getType('ExpertConnection');
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $connectionType,
+            'fieldName' => 'experts',
+            'getFieldSelection' => function (int $depth = 0) {
+                if ($depth >= 3) {
+                    return [
+                        'edges' => ['node' => ['familyName' => true]],
+                        'pageInfo' => ['hasNextPage' => true, 'endCursor' => true],
+                        'totalCount' => true,
+                    ];
+                }
+                return ['edges' => true, 'pageInfo' => true, 'totalCount' => true];
+            },
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolve',
+            [['experts'], ['first' => 2], null, $resolveInfo]
+        );
+
+        verify($result)->isArray();
+        verify($result)->arrayHasKey('edges');
+        verify($result)->arrayHasKey('pageInfo');
+        verify($result)->arrayHasKey('totalCount');
+        verify(count($result['edges']))->equals(2);
+        verify($result['edges'][0])->arrayHasKey('cursor');
+        verify($result['edges'][0])->arrayHasKey('node');
+        verify($result['pageInfo']['hasNextPage'])->true();
+    }
+
+    public function testResolveConnectionWithFirstAndAfter(): void
+    {
+        $schema = $this->getConnectionSchema();
+        $settings = $this->getConnectionSettings();
+        $this->setupServiceWithSettings($settings, $schema);
+
+        $queryBuilder = $this->createPaginatedQueryBuilder([
+            ['uid' => 3, 'family_name' => 'Gamma'],
+            ['uid' => 4, 'family_name' => 'Delta'],
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $parsedSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+        $connectionType = $parsedSchema->getType('ExpertConnection');
+
+        $afterCursor = base64_encode('cursor:2');
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $connectionType,
+            'fieldName' => 'experts',
+            'getFieldSelection' => function (int $depth = 0) {
+                if ($depth >= 3) {
+                    return [
+                        'edges' => ['node' => ['familyName' => true]],
+                        'pageInfo' => ['hasNextPage' => true],
+                    ];
+                }
+                return ['edges' => true, 'pageInfo' => true];
+            },
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolve',
+            [['experts'], ['first' => 2, 'after' => $afterCursor], null, $resolveInfo]
+        );
+
+        verify($result)->isArray();
+        verify(count($result['edges']))->equals(2);
+        verify($result['pageInfo']['hasPreviousPage'])->true();
+        verify($result['pageInfo']['hasNextPage'])->false();
+    }
+
+    public function testResolveConnectionDefaultLimit(): void
+    {
+        $schema = $this->getConnectionSchema();
+        $settings = $this->getConnectionSettings();
+        $settings['pagination'] = ['defaultLimit' => '3', 'maxLimit' => '100'];
+        $this->setupServiceWithSettings($settings, $schema);
+
+        // Return 4 records (default limit 3, so +1 to detect hasNextPage)
+        $records = [];
+        for ($i = 1; $i <= 4; $i++) {
+            $records[] = ['uid' => $i, 'family_name' => "Name{$i}"];
+        }
+        $queryBuilder = $this->createPaginatedQueryBuilder($records);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $parsedSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+        $connectionType = $parsedSchema->getType('ExpertConnection');
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $connectionType,
+            'fieldName' => 'experts',
+            'getFieldSelection' => function (int $depth = 0) {
+                if ($depth >= 3) {
+                    return [
+                        'edges' => ['node' => ['familyName' => true]],
+                        'pageInfo' => ['hasNextPage' => true],
+                    ];
+                }
+                return ['edges' => true, 'pageInfo' => true];
+            },
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolve',
+            [['experts'], [], null, $resolveInfo]
+        );
+
+        // Default limit is 3, so 3 edges returned
+        verify(count($result['edges']))->equals(3);
+        verify($result['pageInfo']['hasNextPage'])->true();
+    }
+
+    public function testResolveConnectionMaxLimitCap(): void
+    {
+        $schema = $this->getConnectionSchema();
+        $settings = $this->getConnectionSettings();
+        $settings['pagination'] = ['defaultLimit' => '20', 'maxLimit' => '5'];
+        $this->setupServiceWithSettings($settings, $schema);
+
+        // Return 6 records to detect capping to 5
+        $records = [];
+        for ($i = 1; $i <= 6; $i++) {
+            $records[] = ['uid' => $i, 'family_name' => "Name{$i}"];
+        }
+        $queryBuilder = $this->createPaginatedQueryBuilder($records);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $parsedSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+        $connectionType = $parsedSchema->getType('ExpertConnection');
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $connectionType,
+            'fieldName' => 'experts',
+            'getFieldSelection' => function (int $depth = 0) {
+                if ($depth >= 3) {
+                    return [
+                        'edges' => ['node' => ['familyName' => true]],
+                        'pageInfo' => ['hasNextPage' => true],
+                    ];
+                }
+                return ['edges' => true, 'pageInfo' => true];
+            },
+        ]);
+
+        // Request 999, should be capped to maxLimit=5
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolve',
+            [['experts'], ['first' => 999], null, $resolveInfo]
+        );
+
+        verify(count($result['edges']))->equals(5);
+        verify($result['pageInfo']['hasNextPage'])->true();
+    }
+
+    public function testResolveConnectionTotalCount(): void
+    {
+        $schema = $this->getConnectionSchema();
+        $settings = $this->getConnectionSettings();
+        $this->setupServiceWithSettings($settings, $schema);
+
+        $queryBuilder = $this->createPaginatedQueryBuilder(
+            [['uid' => 1, 'family_name' => 'Alpha']],
+            42 // totalCount
+        );
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $parsedSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+        $connectionType = $parsedSchema->getType('ExpertConnection');
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $connectionType,
+            'fieldName' => 'experts',
+            'getFieldSelection' => function (int $depth = 0) {
+                if ($depth >= 3) {
+                    return [
+                        'edges' => ['node' => ['familyName' => true]],
+                        'pageInfo' => ['hasNextPage' => true],
+                        'totalCount' => true,
+                    ];
+                }
+                return ['edges' => true, 'pageInfo' => true, 'totalCount' => true];
+            },
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolve',
+            [['experts'], ['first' => 1], null, $resolveInfo]
+        );
+
+        verify($result['totalCount'])->equals(42);
+    }
+
+    public function testResolveConnectionEmptyResult(): void
+    {
+        $schema = $this->getConnectionSchema();
+        $settings = $this->getConnectionSettings();
+        $this->setupServiceWithSettings($settings, $schema);
+
+        $queryBuilder = $this->createPaginatedQueryBuilder([], 0);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $parsedSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+        $connectionType = $parsedSchema->getType('ExpertConnection');
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $connectionType,
+            'fieldName' => 'experts',
+            'getFieldSelection' => function (int $depth = 0) {
+                if ($depth >= 3) {
+                    return [
+                        'edges' => ['node' => ['familyName' => true]],
+                        'pageInfo' => ['hasNextPage' => true],
+                        'totalCount' => true,
+                    ];
+                }
+                return ['edges' => true, 'pageInfo' => true, 'totalCount' => true];
+            },
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolve',
+            [['experts'], [], null, $resolveInfo]
+        );
+
+        verify($result['edges'])->equals([]);
+        verify($result['pageInfo']['hasNextPage'])->false();
+        verify($result['pageInfo']['startCursor'])->null();
+        verify($result['pageInfo']['endCursor'])->null();
+        verify($result['totalCount'])->equals(0);
+    }
+
+    public function testResolveConnectionHasNextPage(): void
+    {
+        $schema = $this->getConnectionSchema();
+        $settings = $this->getConnectionSettings();
+        $this->setupServiceWithSettings($settings, $schema);
+
+        // first=1, return 2 records (extra one signals hasNextPage)
+        $queryBuilder = $this->createPaginatedQueryBuilder([
+            ['uid' => 1, 'family_name' => 'Alpha'],
+            ['uid' => 2, 'family_name' => 'Beta'],
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $parsedSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+        $connectionType = $parsedSchema->getType('ExpertConnection');
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $connectionType,
+            'fieldName' => 'experts',
+            'getFieldSelection' => function (int $depth = 0) {
+                if ($depth >= 3) {
+                    return [
+                        'edges' => ['node' => ['familyName' => true]],
+                        'pageInfo' => ['hasNextPage' => true],
+                    ];
+                }
+                return ['edges' => true, 'pageInfo' => true];
+            },
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolve',
+            [['experts'], ['first' => 1], null, $resolveInfo]
+        );
+
+        verify(count($result['edges']))->equals(1);
+        verify($result['pageInfo']['hasNextPage'])->true();
+    }
+
+    public function testResolvePlainListUnchanged(): void
+    {
+        $schema = 'type Query { users: [User] } type User { id: Int name: String }';
+
+        $settings = [
+            'schemaFiles' => [],
+            'tableMapping' => ['users' => 'fe_users', 'User' => 'fe_users'],
+        ];
+        $this->setupServiceWithSettings($settings, $schema);
+
+        $queryBuilder = $this->createFluentQueryBuilder([
+            ['uid' => 1, 'id' => 1, 'name' => 'John'],
+            ['uid' => 2, 'id' => 2, 'name' => 'Jane'],
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $parsedSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+
+        $userType = $parsedSchema->getType('User');
+        $listType = new ListOfType($userType);
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $listType,
+            'fieldName' => 'users',
+            'getFieldSelection' => ['id' => true, 'name' => true],
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolve',
+            [['users'], [], null, $resolveInfo]
+        );
+
+        // Should be a flat array, not a connection structure
+        verify($result)->isArray();
+        verify(count($result))->equals(2);
+        verify($result[0])->arrayHasKey('id');
+        verify(array_key_exists('edges', $result[0]))->false();
+    }
+
+    public function testGetConnectionFieldSelection(): void
+    {
+        $schema = $this->getConnectionSchema();
+        $this->setupServiceWithSchema($schema);
+
+        $parsedSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+
+        $connectionType = $parsedSchema->getType('ExpertConnection');
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $connectionType,
+            'fieldName' => 'experts',
+            'getFieldSelection' => function (int $depth = 0) {
+                if ($depth >= 3) {
+                    return [
+                        'edges' => ['node' => ['familyName' => true, 'givenName' => true]],
+                        'pageInfo' => ['hasNextPage' => true],
+                    ];
+                }
+                return ['edges' => true, 'pageInfo' => true];
+            },
+        ]);
+
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'getConnectionFieldSelection',
+            [$resolveInfo]
+        );
+
+        verify($result)->arrayContains('uid');
+        verify($result)->arrayContains('family_name');
+        verify($result)->arrayContains('given_name');
+        // pageInfo should NOT appear as a database field
+        verify($result)->arrayNotContains('page_info');
+    }
+
+    public function testPaginationArgsNotTreatedAsWhereConditions(): void
+    {
+        $schema = $this->getConnectionSchema();
+        $settings = $this->getConnectionSettings();
+        $this->setupServiceWithSettings($settings, $schema);
+
+        $capturedConditions = [];
+        $queryBuilder = $this->createPaginatedQueryBuilder(
+            [['uid' => 1, 'family_name' => 'Alpha']],
+            1,
+            $capturedConditions
+        );
+
+        $this->connectionPool = $this->makeEmpty(ConnectionPool::class, [
+            'getQueryBuilderForTable' => $queryBuilder,
+        ]);
+
+        $this->service = $this->createService();
+
+        $parsedSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+        $connectionType = $parsedSchema->getType('ExpertConnection');
+
+        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $connectionType,
+            'fieldName' => 'experts',
+            'getFieldSelection' => function (int $depth = 0) {
+                if ($depth >= 3) {
+                    return [
+                        'edges' => ['node' => ['familyName' => true]],
+                        'pageInfo' => ['hasNextPage' => true],
+                        'totalCount' => true,
+                    ];
+                }
+                return ['edges' => true, 'pageInfo' => true, 'totalCount' => true];
+            },
+        ]);
+
+        // Pass first and after as args — they should NOT become WHERE first = ... / WHERE after = ...
+        $afterCursor = base64_encode('cursor:0');
+        $result = $this->invokePrivateMethod(
+            $this->service,
+            'resolve',
+            [['experts'], ['familyName' => 'Alpha', 'first' => 10, 'after' => $afterCursor], null, $resolveInfo]
+        );
+
+        // Should not have 'first' or 'after' in conditions
+        foreach ($capturedConditions as $condition) {
+            verify($condition)->stringNotContainsString('first');
+            verify($condition)->stringNotContainsString('after');
+        }
+
+        // familyName should be in conditions
+        $hasFilter = false;
+        foreach ($capturedConditions as $condition) {
+            if (str_contains($condition, 'family_name')) {
+                $hasFilter = true;
+            }
+        }
+        verify($hasFilter)->true();
+    }
+
+    // =========================================================================
+    // Pagination Helper Methods
+    // =========================================================================
+
+    private function getConnectionSchema(): string
+    {
+        return <<<'GRAPHQL'
+type Query { experts(familyName: String, first: Int, after: String): ExpertConnection }
+type PageInfo { hasNextPage: Boolean! hasPreviousPage: Boolean! startCursor: String endCursor: String }
+type Expert { familyName: String givenName: String }
+type ExpertConnection { edges: [ExpertEdge!]! pageInfo: PageInfo! totalCount: Int! }
+type ExpertEdge { cursor: String! node: Expert! }
+GRAPHQL;
+    }
+
+    private function getConnectionSettings(): array
+    {
+        return [
+            'schemaFiles' => [],
+            'tableMapping' => [
+                'experts' => 'tx_academy_domain_model_persons',
+                'Expert' => 'tx_academy_domain_model_persons',
+            ],
+            'pagination' => [
+                'defaultLimit' => '20',
+                'maxLimit' => '100',
+            ],
+        ];
+    }
+
+    private function createPaginatedQueryBuilder(
+        array $returnData,
+        int $totalCount = 0,
+        ?array &$capturedConditions = null
+    ): QueryBuilder {
+        $expressionBuilder = $this->makeEmpty(ExpressionBuilder::class, [
+            'eq' => function ($field, $value) {
+                return "{$field} = {$value}";
+            },
+            'gt' => function ($field, $value) {
+                return "{$field} > {$value}";
+            },
+        ]);
+
+        $queryBuilder = $this->makeEmpty(QueryBuilder::class, [
+            'select' => function () use (&$queryBuilder) {
+                return $queryBuilder;
+            },
+            'count' => function () use (&$queryBuilder) {
+                return $queryBuilder;
+            },
+            'from' => function () use (&$queryBuilder) {
+                return $queryBuilder;
+            },
+            'where' => function (...$conditions) use (&$queryBuilder, &$capturedConditions) {
+                if ($capturedConditions !== null) {
+                    $capturedConditions = array_merge($capturedConditions, $conditions);
+                }
+                return $queryBuilder;
+            },
+            'orderBy' => function () use (&$queryBuilder) {
+                return $queryBuilder;
+            },
+            'setMaxResults' => function () use (&$queryBuilder) {
+                return $queryBuilder;
+            },
+            'expr' => $expressionBuilder,
+            'createNamedParameter' => function ($value) {
+                return "'{$value}'";
+            },
+            'executeQuery' => function () use ($returnData, $totalCount) {
+                $statement = $this->makeEmpty(\Doctrine\DBAL\Result::class, [
+                    'fetchAllAssociative' => $returnData,
+                    'fetchOne' => $totalCount,
+                ]);
+                return $statement;
+            },
+        ]);
+
+        return $queryBuilder;
+    }
+
+    // =========================================================================
     // Helper Methods
     // =========================================================================
 

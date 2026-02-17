@@ -331,15 +331,206 @@ With the configuration above, you can now query nested relations:
     }
   }
 
-  experts(limit: 10) {
-    familyName
-    givenName
-    disciplines {
-      name
+  experts(first: 10) {
+    edges {
+      node {
+        familyName
+        givenName
+        disciplines {
+          name
+        }
+      }
     }
   }
 }
 ```
+
+## Pagination
+
+TypoGraph supports cursor-based pagination following the [GraphQL Cursor Connections Specification](https://relay.dev/graphql/connections.htm) (Relay spec). This is the pagination approach [recommended by graphql.org](https://graphql.org/learn/pagination/).
+
+### How It Works
+
+When a root query field returns a **Connection type** (a type whose name ends with `Connection`), TypoGraph automatically applies cursor-based pagination. If the return type is a plain list (e.g. `[Foo]`), the resolver behaves as before -- no pagination is applied.
+
+Cursors are opaque, base64-encoded strings. Clients should treat them as opaque tokens and never parse or construct them manually.
+
+### Schema Setup
+
+To enable pagination for a type, you need to define three types in your GraphQL schema and include the shared `Pagination.graphql` schema file provided by TypoGraph.
+
+**1. Include the shared PageInfo type:**
+
+The `Pagination.graphql` file ships with TypoGraph and defines:
+
+```graphql
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+```
+
+Add it as the first schema file in your TypoScript configuration:
+
+```typoscript
+schemaFiles {
+  0 = EXT:typograph/Resources/Private/Schemas/Pagination.graphql
+  1 = EXT:sitepackage/Resources/Private/Schemas/Query.graphql
+  # ...
+}
+```
+
+**2. Define Connection and Edge types for your entity:**
+
+```graphql
+type Expert {
+  familyName: String
+  givenName: String
+}
+
+type ExpertConnection {
+  edges: [ExpertEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ExpertEdge {
+  cursor: String!
+  node: Expert!
+}
+```
+
+**3. Update the Query type to return the Connection type:**
+
+```graphql
+type Query {
+  experts(familyName: String, first: Int, after: String): ExpertConnection
+}
+```
+
+The `first` and `after` arguments are recognized as pagination arguments and are **not** turned into WHERE conditions. All other arguments (like `familyName`) continue to work as filters.
+
+### Pagination Configuration
+
+Configure default and maximum page sizes via TypoScript:
+
+```typoscript
+plugin.tx_typograph.settings {
+  pagination {
+    defaultLimit = 20
+    maxLimit = 100
+  }
+}
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `defaultLimit` | `20` | Page size when `first` is not provided |
+| `maxLimit` | `100` | Upper bound for `first`; requests above this are clamped |
+
+### Querying with Pagination
+
+**First page:**
+
+```graphql
+{
+  experts(first: 10) {
+    edges {
+      cursor
+      node {
+        familyName
+        givenName
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    totalCount
+  }
+}
+```
+
+**Next page** (using the `endCursor` from the previous response):
+
+```graphql
+{
+  experts(first: 10, after: "Y3Vyc29yOjQy") {
+    edges {
+      cursor
+      node {
+        familyName
+        givenName
+      }
+    }
+    pageInfo {
+      hasNextPage
+      hasPreviousPage
+      endCursor
+    }
+  }
+}
+```
+
+**Combining filters with pagination:**
+
+```graphql
+{
+  experts(familyName: "Smith", first: 5) {
+    edges {
+      node {
+        familyName
+        givenName
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    totalCount
+  }
+}
+```
+
+### Response Structure
+
+A paginated response has this shape:
+
+```json
+{
+  "data": {
+    "experts": {
+      "edges": [
+        {
+          "cursor": "Y3Vyc29yOjE=",
+          "node": {
+            "familyName": "Smith",
+            "givenName": "Jane"
+          }
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": true,
+        "hasPreviousPage": false,
+        "startCursor": "Y3Vyc29yOjE=",
+        "endCursor": "Y3Vyc29yOjE="
+      },
+      "totalCount": 42
+    }
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `edges` | Array of edge objects, each containing a `cursor` and a `node` (the actual entity) |
+| `pageInfo.hasNextPage` | `true` if more records exist after this page |
+| `pageInfo.hasPreviousPage` | `true` if an `after` cursor was provided (i.e. this is not the first page) |
+| `pageInfo.startCursor` | Cursor of the first edge in this page (`null` if empty) |
+| `pageInfo.endCursor` | Cursor of the last edge in this page (`null` if empty). Pass this as the `after` argument to fetch the next page. |
+| `totalCount` | Total number of matching records across all pages. Only queried from the database when this field is actually requested in the GraphQL selection. |
 
 ### Performance Characteristics
 

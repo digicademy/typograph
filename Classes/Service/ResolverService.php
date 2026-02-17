@@ -30,6 +30,7 @@ use Exception;
 use GraphQL\GraphQL;
 use GraphQL\Language\Parser;
 use GraphQL\Type\Definition\ListOfType;
+use GraphQL\Type\Definition\NonNull;
 use GraphQL\Type\Definition\ObjectType;
 use GraphQL\Type\Definition\ResolveInfo;
 use GraphQL\Type\Schema;
@@ -72,6 +73,15 @@ class ResolverService
      */
     protected array $batchCache = [];
 
+    protected int $defaultLimit;
+
+    protected int $maxLimit;
+
+    /**
+     * Pagination args that must not be treated as WHERE conditions
+     */
+    protected const PAGINATION_ARGS = ['first', 'after'];
+
     public function __construct(
         private readonly ConnectionPool $connectionPool,
         private readonly ConfigurationManagerInterface $configurationManager,
@@ -86,6 +96,8 @@ class ResolverService
         $this->schemaFiles = $settings['schemaFiles'] ?? [];
         $this->tableMapping = $settings['tableMapping'] ?? [];
         $this->relations = $this->flattenRelationsConfig($settings['relations'] ?? []);
+        $this->defaultLimit = (int)($settings['pagination']['defaultLimit'] ?? 20);
+        $this->maxLimit = (int)($settings['pagination']['maxLimit'] ?? 100);
     }
 
     /**
@@ -148,6 +160,19 @@ class ResolverService
                 null,
                 fn($root, array $args, $context, ResolveInfo $info) => $this->resolve($root, $args, $context, $info)
             );
+
+            foreach ($result->errors as $error) {
+                $previous = $error->getPrevious();
+                $this->logger->error(
+                    $error->getMessage(),
+                    [
+                        'path' => $error->path,
+                        'previous' => $previous?->getMessage(),
+                        'trace' => $previous?->getTraceAsString(),
+                    ]
+                );
+            }
+
             $output = $result->toArray();
         } catch (Exception $e) {
             $this->logger->error($e->getMessage());
@@ -261,31 +286,102 @@ class ResolverService
         // and want to run a database query.
         if (is_array($root) && isset($root[0]) && in_array($root[0], $rootTables)) {
             $rootTable = $this->tableMapping[$root[0]];
+            $isConnection = $this->isConnectionType($info);
+
+            // Separate pagination args from filter args
+            $filterArgs = [];
+            $paginationArgs = [];
+            foreach ($args as $key => $value) {
+                if (in_array($key, self::PAGINATION_ARGS)) {
+                    $paginationArgs[$key] = $value;
+                } else {
+                    $filterArgs[$key] = $value;
+                }
+            }
 
             try {
                 $queryBuilder = $this->connectionPool
                     ->getQueryBuilderForTable($rootTable);
 
-                // We only want to fetch fields we need.
-                // @see https://webonyx.github.io/graphql-php/data-fetching/#optimize-resolvers
-                $fields = $this->getScalarFieldsFromSelection($info);
+                // Determine which fields to SELECT
+                if ($isConnection) {
+                    $fields = $this->getConnectionFieldSelection($info);
+                } else {
+                    $fields = $this->getScalarFieldsFromSelection($info);
+                }
+
                 $queryBuilder
                     ->select(...$fields)
                     ->from($rootTable);
 
-                // If we have arguments, add `where` conditions.
-                // @see https://docs.typo3.org/permalink/t3coreapi:database-query-builder-where
-                if ($args !== []) {
-                    $conditions = [];
-                    foreach ($args as $key => $value) {
-                        array_push(
-                            $conditions,
-                            $queryBuilder->expr()->eq(
-                                GeneralUtility::camelCaseToLowerCaseUnderscored($key),
-                                $queryBuilder->createNamedParameter($value)
-                            )
+                // Build filter WHERE clauses from non-pagination args
+                $conditions = [];
+                foreach ($filterArgs as $key => $value) {
+                    $conditions[] = $queryBuilder->expr()->eq(
+                        GeneralUtility::camelCaseToLowerCaseUnderscored($key),
+                        $queryBuilder->createNamedParameter($value)
+                    );
+                }
+
+                if ($isConnection) {
+                    // Cursor-based pagination
+                    $first = isset($paginationArgs['first'])
+                        ? min((int)$paginationArgs['first'], $this->maxLimit)
+                        : $this->defaultLimit;
+                    $afterCursor = $paginationArgs['after'] ?? null;
+
+                    if ($afterCursor !== null) {
+                        $afterUid = $this->decodeCursor($afterCursor);
+                        $conditions[] = $queryBuilder->expr()->gt(
+                            'uid',
+                            $queryBuilder->createNamedParameter($afterUid)
                         );
                     }
+
+                    if ($conditions !== []) {
+                        $queryBuilder->where(...$conditions);
+                    }
+
+                    $queryBuilder
+                        ->orderBy('uid', 'ASC')
+                        ->setMaxResults($first + 1);
+
+                    $records = $queryBuilder
+                        ->executeQuery()
+                        ->fetchAllAssociative();
+
+                    // Determine totalCount only if requested in selection
+                    $totalCount = 0;
+                    $selection = $info->getFieldSelection(1);
+                    if (isset($selection['totalCount'])) {
+                        $countBuilder = $this->connectionPool
+                            ->getQueryBuilderForTable($rootTable);
+                        $countBuilder
+                            ->count('uid')
+                            ->from($rootTable);
+
+                        // Apply same filter conditions (not cursor/limit)
+                        $countConditions = [];
+                        foreach ($filterArgs as $key => $value) {
+                            $countConditions[] = $countBuilder->expr()->eq(
+                                GeneralUtility::camelCaseToLowerCaseUnderscored($key),
+                                $countBuilder->createNamedParameter($value)
+                            );
+                        }
+                        if ($countConditions !== []) {
+                            $countBuilder->where(...$countConditions);
+                        }
+
+                        $totalCount = (int)$countBuilder
+                            ->executeQuery()
+                            ->fetchOne();
+                    }
+
+                    return $this->buildConnectionResponse($records, $totalCount, $afterCursor, $first);
+                }
+
+                // Plain list type (non-connection)
+                if ($conditions !== []) {
                     $queryBuilder->where(...$conditions);
                 }
 
@@ -306,10 +402,15 @@ class ResolverService
             return $this->resolveRelation($root, $info);
         }
 
-        // Convert camelCase field name to snake_case and look it up in the array
+        // Look up the field directly first (handles camelCase keys from
+        // connection responses like pageInfo, hasNextPage, totalCount, etc.),
+        // then fall back to snake_case conversion for database column names.
         $fieldName = $info->fieldName;
+        if (array_key_exists($fieldName, $root)) {
+            return $root[$fieldName];
+        }
         $snakeCaseFieldName = GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
-        return $root[$snakeCaseFieldName];
+        return $root[$snakeCaseFieldName] ?? null;
     }
 
     /**
@@ -629,6 +730,172 @@ class ResolverService
         }
 
         return $fields;
+    }
+
+    /**
+     * Encode a UID into an opaque cursor string
+     */
+    protected function encodeCursor(int $uid): string
+    {
+        return base64_encode('cursor:' . $uid);
+    }
+
+    /**
+     * Decode an opaque cursor string back to a UID
+     *
+     * @throws \InvalidArgumentException
+     */
+    protected function decodeCursor(string $cursor): int
+    {
+        $decoded = base64_decode($cursor, true);
+        if ($decoded === false || !str_starts_with($decoded, 'cursor:')) {
+            throw new \InvalidArgumentException('Invalid cursor: ' . $cursor);
+        }
+        return (int)substr($decoded, 7);
+    }
+
+    /**
+     * Check if the return type of a root query field is a Connection type
+     */
+    protected function isConnectionType(ResolveInfo $info): bool
+    {
+        $type = $info->returnType;
+
+        // Unwrap NonNull
+        if ($type instanceof NonNull) {
+            $type = $type->getWrappedType();
+        }
+
+        if ($type instanceof ObjectType) {
+            return str_ends_with($type->name, 'Connection');
+        }
+
+        return false;
+    }
+
+    /**
+     * Get the underlying node ObjectType from a Connection return type.
+     * Navigates Connection → edges → [EdgeType] → node → NodeType.
+     */
+    protected function getNodeTypeFromConnection(ResolveInfo $info): ?ObjectType
+    {
+        $type = $info->returnType;
+
+        if ($type instanceof NonNull) {
+            $type = $type->getWrappedType();
+        }
+
+        if (!($type instanceof ObjectType)) {
+            return null;
+        }
+
+        $edgesField = $type->getField('edges');
+        $edgesType = $edgesField->getType();
+
+        // Unwrap ListOfType and NonNull to get EdgeType
+        while (!($edgesType instanceof ObjectType)) {
+            if ($edgesType instanceof ListOfType || $edgesType instanceof NonNull) {
+                $edgesType = $edgesType->getWrappedType();
+            } else {
+                return null;
+            }
+        }
+
+        $nodeField = $edgesType->getField('node');
+        $nodeType = $nodeField->getType();
+
+        // Unwrap NonNull
+        if ($nodeType instanceof NonNull) {
+            $nodeType = $nodeType->getWrappedType();
+        }
+
+        return $nodeType instanceof ObjectType ? $nodeType : null;
+    }
+
+    /**
+     * Extract the entity fields requested inside edges.node from a Connection query.
+     * Walks the field selection to find edges → node → {fields}.
+     *
+     * @return array<string> Snake_case field names for SELECT
+     */
+    protected function getConnectionFieldSelection(ResolveInfo $info): array
+    {
+        $fields = ['uid']; // Always include UID for cursor generation
+
+        $selection = $info->getFieldSelection(3);
+        $nodeFields = $selection['edges']['node'] ?? [];
+
+        $nodeType = $this->getNodeTypeFromConnection($info);
+        if ($nodeType === null) {
+            return $fields;
+        }
+
+        $typeFields = $nodeType->getFields();
+
+        foreach ($nodeFields as $fieldName => $sub) {
+            if (!isset($typeFields[$fieldName])) {
+                continue;
+            }
+
+            $fieldDef = $typeFields[$fieldName];
+            $fieldType = $fieldDef->getType();
+
+            // Unwrap ListOfType/NonNull
+            if ($fieldType instanceof ListOfType) {
+                $fieldType = $fieldType->getWrappedType();
+            }
+            if ($fieldType instanceof NonNull) {
+                $fieldType = $fieldType->getWrappedType();
+            }
+
+            // Only include scalar fields
+            if (!($fieldType instanceof ObjectType)) {
+                $snakeCaseField = GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
+                if (!in_array($snakeCaseField, $fields)) {
+                    $fields[] = $snakeCaseField;
+                }
+            }
+        }
+
+        return $fields;
+    }
+
+    /**
+     * Build the Relay Connection response structure
+     *
+     * @param array<array<string, mixed>> $records Records fetched (may include +1 extra)
+     * @param int $totalCount Total matching records (0 if not requested)
+     * @param string|null $afterCursor The after cursor used in the query
+     * @param int $first The requested page size
+     * @return array<string, mixed>
+     */
+    protected function buildConnectionResponse(array $records, int $totalCount, ?string $afterCursor, int $first): array
+    {
+        $hasNextPage = count($records) > $first;
+
+        // Slice to requested size
+        $records = array_slice($records, 0, $first);
+
+        $edges = [];
+        foreach ($records as $record) {
+            $edges[] = [
+                'cursor' => $this->encodeCursor((int)$record['uid']),
+                'node' => $record,
+            ];
+        }
+
+        $pageInfo = [
+            'hasNextPage' => $hasNextPage,
+            'hasPreviousPage' => $afterCursor !== null,
+            'startCursor' => !empty($edges) ? $edges[0]['cursor'] : null,
+            'endCursor' => !empty($edges) ? $edges[count($edges) - 1]['cursor'] : null,
+        ];
+
+        return [
+            'edges' => $edges,
+            'pageInfo' => $pageInfo,
+            'totalCount' => $totalCount,
+        ];
     }
 
     /**
