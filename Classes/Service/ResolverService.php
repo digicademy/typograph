@@ -29,10 +29,12 @@ namespace Digicademy\TypoGraph\Service;
 use Exception;
 use GraphQL\GraphQL;
 use GraphQL\Language\Parser;
-use GraphQL\Type\Definition\ListOfType;
-use GraphQL\Type\Definition\NonNull;
-use GraphQL\Type\Definition\ObjectType;
-use GraphQL\Type\Definition\ResolveInfo;
+use GraphQL\Type\Definition\{
+    ListOfType,
+    NonNull,
+    ObjectType,
+    ResolveInfo
+};
 use GraphQL\Type\Schema;
 use GraphQL\Utils\BuildSchema;
 use GraphQL\Validator\DocumentValidator;
@@ -69,7 +71,7 @@ class ResolverService
 
     /**
      * Batch loader cache for relations to avoid N+1 queries
-     * @var array<string, array<int|string, mixed>>
+     * @var array<string, array<int|string, mixed>|null>
      */
     protected array $batchCache = [];
 
@@ -328,7 +330,7 @@ class ResolverService
                     $first = isset($paginationArgs['first'])
                         ? min((int)$paginationArgs['first'], $this->maxLimit)
                         : $this->defaultLimit;
-                    $afterCursor = $paginationArgs['after'] ?? null;
+                    $afterCursor = isset($paginationArgs['after']) ? (string)$paginationArgs['after'] : null;
 
                     if ($afterCursor !== null) {
                         $afterUid = $this->decodeCursor($afterCursor);
@@ -462,6 +464,7 @@ class ResolverService
 
         // For uid and commaSeparated, we need a source field value
         // For foreignKey and mmTable, we use the parent UID directly
+        $sourceValue = null;
         if (in_array($storageType, ['uid', 'commaSeparated'])) {
             // Get the source field (column) name
             $sourceField = $relationConfig['sourceField'] ?? GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
@@ -536,7 +539,7 @@ class ResolverService
      * @param string $targetTable
      * @param int $uid
      * @param ResolveInfo $info
-     * @return array<string, mixed>|null
+     * @return array<int|string, mixed>|null
      */
     protected function resolveUidRelation(string $targetTable, int $uid, ResolveInfo $info): ?array
     {
@@ -565,7 +568,7 @@ class ResolverService
      * @param string $targetTable
      * @param string $uids Comma-separated UIDs
      * @param ResolveInfo $info
-     * @return array<array<string, mixed>>
+     * @return array<array<int|string, mixed>>
      */
     protected function resolveCommaSeparatedRelation(string $targetTable, string $uids, ResolveInfo $info): array
     {
@@ -586,7 +589,7 @@ class ResolverService
      * @param int $sourceUid
      * @param array<string, mixed> $relationConfig
      * @param ResolveInfo $info
-     * @return array<array<string, mixed>>
+     * @return array<array<int|string, mixed>>
      */
     protected function resolveMmRelation(
         string $targetTable,
@@ -662,7 +665,7 @@ class ResolverService
      * @param string $table
      * @param array<int> $uids
      * @param ResolveInfo $info
-     * @return array<array<string, mixed>>
+     * @return array<array<int|string, mixed>>
      */
     protected function batchLoadRecords(string $table, array $uids, ResolveInfo $info): array
     {

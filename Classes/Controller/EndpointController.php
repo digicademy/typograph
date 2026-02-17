@@ -61,7 +61,7 @@ class EndpointController extends ActionController
      * @return ResponseInterface
      */
     protected function graphqlJsonResponse(
-        string $json = null
+        ?string $json = null
     ): ResponseInterface {
         return $this->responseFactory->createResponse()
             ->withHeader(
