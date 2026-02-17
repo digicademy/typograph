@@ -5,7 +5,12 @@ namespace Tests\Unit;
 use Codeception\Test\Unit;
 use Digicademy\TypoGraph\Service\ResolverService;
 use GraphQL\Language\AST\DocumentNode;
+use GraphQL\Type\Definition\ListOfType;
+use GraphQL\Type\Definition\ObjectType;
 use GraphQL\Type\Definition\ResolveInfo;
+use GraphQL\Type\Definition\Type;
+use TYPO3\CMS\Core\Core\ApplicationContext;
+use TYPO3\CMS\Core\Core\Environment;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -215,26 +220,37 @@ GRAPHQL;
 
     public function testGetSchemaInProductionWithCacheMiss(): void
     {
-        $schemaContent = 'type Query { test: String }';
-        $setWasCalled = false;
+        // Temporarily set Production context so the cache code path is exercised
+        $envRef = new \ReflectionClass(Environment::class);
+        $contextProp = $envRef->getProperty('context');
+        $contextProp->setAccessible(true);
+        $originalContext = $contextProp->getValue();
+        $contextProp->setValue(null, new ApplicationContext('Production'));
 
-        $this->cache = $this->makeEmpty(
-            FrontendInterface::class,
-            [
-                'has' => false,
-                'set' => function ($identifier, $document) use (&$setWasCalled) {
-                    $setWasCalled = true;
-                    verify($identifier)->equals('typograph_cached_schema');
-                    verify($document)->instanceOf(DocumentNode::class);
-                },
-            ]
-        );
+        try {
+            $schemaContent = 'type Query { test: String }';
+            $setWasCalled = false;
 
-        $this->setupServiceWithSchemaForCacheTest($schemaContent);
+            $this->cache = $this->makeEmpty(
+                FrontendInterface::class,
+                [
+                    'has' => false,
+                    'set' => function ($identifier, $document) use (&$setWasCalled) {
+                        $setWasCalled = true;
+                        verify($identifier)->equals('typograph_cached_schema');
+                        verify($document)->instanceOf(DocumentNode::class);
+                    },
+                ]
+            );
 
-        $schema = $this->invokePrivateMethod($this->service, 'getSchema');
-        verify($schema)->instanceOf(\GraphQL\Type\Schema::class);
-        verify($setWasCalled)->true();
+            $this->setupServiceWithSchemaForCacheTest($schemaContent);
+
+            $schema = $this->invokePrivateMethod($this->service, 'getSchema');
+            verify($schema)->instanceOf(\GraphQL\Type\Schema::class);
+            verify($setWasCalled)->true();
+        } finally {
+            $contextProp->setValue(null, $originalContext);
+        }
     }
 
     // =========================================================================
@@ -460,11 +476,12 @@ GRAPHQL;
         $schema = 'type Query { taxonomy: Taxonomy } type Taxonomy { name: String disciplines: [Discipline] } type Discipline { name: String }';
         $this->setupServiceWithSchema($schema);
 
-        // Create ResolveInfo for an object field
+        // Use real GraphQL type instances instead of mocks
+        $objectType = new ObjectType(['name' => 'Discipline', 'fields' => ['name' => Type::string()]]);
+        $listType = new ListOfType($objectType);
+
         $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
-            'returnType' => $this->makeEmpty(\GraphQL\Type\Definition\ListOfType::class, [
-                'getWrappedType' => $this->makeEmpty(ObjectType::class),
-            ]),
+            'returnType' => $listType,
         ]);
 
         $result = $this->invokePrivateMethod($this->service, 'isRelationField', [$resolveInfo]);
@@ -513,10 +530,6 @@ GRAPHQL;
         $this->service = $this->createService();
 
         $resolveInfo = $this->createMockResolveInfo(['name' => true], 'discipline');
-        $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
-            'getFieldSelection' => ['name' => true],
-            'fieldName' => 'discipline',
-        ]);
 
         $result = $this->invokePrivateMethod(
             $this->service,
@@ -658,10 +671,13 @@ GRAPHQL;
 
         $this->service = $this->createService();
 
+        $parentType = new ObjectType(['name' => 'Taxonomy', 'fields' => ['name' => Type::string()]]);
+        $returnType = new ListOfType(new ObjectType(['name' => 'Discipline', 'fields' => ['name' => Type::string()]]));
+
         $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
-            'parentType' => $this->makeEmpty(ObjectType::class, ['name' => 'Taxonomy']),
+            'parentType' => $parentType,
             'fieldName' => 'disciplines',
-            'returnType' => $this->makeEmpty(\GraphQL\Type\Definition\ListOfType::class),
+            'returnType' => $returnType,
         ]);
 
         $result = $this->invokePrivateMethod(
@@ -859,10 +875,12 @@ GRAPHQL;
                 'Discipline' => 'tx_discipline',
             ],
             'relations' => [
-                'Taxonomy.disciplines' => [
-                    'targetType' => 'Discipline',
-                    'storageType' => 'foreignKey',
-                    'foreignKeyField' => 'discipline_taxonomy',
+                'Taxonomy' => [
+                    'disciplines' => [
+                        'targetType' => 'Discipline',
+                        'storageType' => 'foreignKey',
+                        'foreignKeyField' => 'discipline_taxonomy',
+                    ],
                 ],
             ],
         ];
@@ -884,10 +902,13 @@ GRAPHQL;
 
         $this->service = $this->createService();
 
+        $parentType = new ObjectType(['name' => 'Taxonomy', 'fields' => ['name' => Type::string()]]);
+        $returnType = new ListOfType(new ObjectType(['name' => 'Discipline', 'fields' => ['name' => Type::string()]]));
+
         $resolveInfo = $this->makeEmpty(ResolveInfo::class, [
-            'parentType' => $this->makeEmpty(ObjectType::class, ['name' => 'Taxonomy']),
+            'parentType' => $parentType,
             'fieldName' => 'disciplines',
-            'returnType' => $this->makeEmpty(\GraphQL\Type\Definition\ListOfType::class),
+            'returnType' => $returnType,
             'getFieldSelection' => ['name' => true],
         ]);
 
@@ -1049,6 +1070,7 @@ GRAPHQL;
             'executeQuery' => function () use ($returnData) {
                 $statement = $this->makeEmpty(\Doctrine\DBAL\Result::class, [
                     'fetchAllAssociative' => $returnData,
+                    'fetchAssociative' => $returnData[0] ?? false,
                 ]);
                 return $statement;
             },
@@ -1103,6 +1125,7 @@ GRAPHQL;
         return $this->makeEmpty(ResolveInfo::class, [
             'getFieldSelection' => $fieldSelection,
             'fieldName' => $fieldName,
+            'returnType' => Type::string(),
         ]);
     }
 
