@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-defined('TYPO3') or die();
-
 use Digicademy\TypoGraph\Controller\EndpointController;
 use TYPO3\CMS\Core\Cache\Backend\SimpleFileBackend;
 use TYPO3\CMS\Extbase\Utility\ExtensionUtility;
+
+defined('TYPO3') or die();
 
 // Cache configuration
 //
