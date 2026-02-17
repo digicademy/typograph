@@ -1,6 +1,6 @@
 parameters:
-    ignoreErrors:
-        - '#^Access to an undefined property GraphQL\\Language\\AST\\DefinitionNode&GraphQL\\Language\\AST\\Node\:\:\$selectionSet.$#'
-    level: 8
-    paths:
-        - Classes
+	ignoreErrors:
+		- '#^Access to an undefined property GraphQL\\Language\\AST\\DefinitionNode&GraphQL\\Language\\AST\\Node\:\:\$selectionSet.$#'
+	level: 9
+	paths:
+		- Classes

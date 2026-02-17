@@ -28,6 +28,7 @@ namespace Digicademy\TypoGraph\Service;
 
 use Exception;
 use GraphQL\GraphQL;
+use GraphQL\Language\AST\DocumentNode;
 use GraphQL\Language\Parser;
 use GraphQL\Type\Definition\{
     ListOfType,
@@ -45,6 +46,18 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
 
+/**
+ * @phpstan-type RelationConfig array{
+ *     storageType?: string,
+ *     sourceField?: string,
+ *     targetType?: string,
+ *     mmTable?: string,
+ *     foreignKeyField?: string,
+ *     mmSourceField?: string,
+ *     mmTargetField?: string,
+ *     mmSortingField?: string,
+ * }
+ */
 class ResolverService
 {
     protected const CACHE_IDENTIFIER = 'typograph_cached_schema';
@@ -60,7 +73,7 @@ class ResolverService
     protected array $tableMapping;
 
     /**
-     * @var array<string, array<string, mixed>>
+     * @var array<string, RelationConfig>
      */
     protected array $relations;
 
@@ -112,7 +125,7 @@ class ResolverService
      * ['Taxonomy.disciplines' => [...]]
      *
      * @param array<string, mixed> $relations
-     * @return array<string, array<string, mixed>>
+     * @return array<string, RelationConfig>
      */
     protected function flattenRelationsConfig(array $relations): array
     {
@@ -129,6 +142,7 @@ class ResolverService
                 }
 
                 $key = "{$typeName}.{$fieldName}";
+                /** @var RelationConfig $config */
                 $flattened[$key] = $config;
             }
         }
@@ -136,13 +150,17 @@ class ResolverService
         return $flattened;
     }
 
-    public function process(string $json): mixed
+    /**
+     * @param  string      $json
+     * @return string|null
+     */
+    public function process(string $json): ?string
     {
         $input = json_decode($json, true);
 
         if (!is_array($input) || !isset($input['query'])) {
             $this->logger->error('Invalid JSON input or missing query field');
-            return json_encode(null);
+            return json_encode(null) ?: null;
         }
 
         $query = $input['query'];
@@ -181,7 +199,7 @@ class ResolverService
             $output = null;
         }
 
-        return json_encode($output, JSON_UNESCAPED_SLASHES);
+        return json_encode($output, JSON_UNESCAPED_SLASHES) ?: null;
     }
 
     /**
@@ -224,7 +242,9 @@ class ResolverService
         } else {
             // If we have a cached schema, we're gonna use it.
             if ($this->cache->has(self::CACHE_IDENTIFIER)) {
-                $document = $this->cache->get(self::CACHE_IDENTIFIER);
+                $cached = $this->cache->get(self::CACHE_IDENTIFIER);
+                assert($cached instanceof DocumentNode);
+                $document = $cached;
                 // Otherwise we parse the schema file(s) and cache them before
                 // proceeding.
             } else {
@@ -374,9 +394,10 @@ class ResolverService
                             $countBuilder->where(...$countConditions);
                         }
 
-                        $totalCount = (int)$countBuilder
+                        $count = $countBuilder
                             ->executeQuery()
                             ->fetchOne();
+                        $totalCount = is_int($count) || is_string($count) ? (int)$count : 0;
                     }
 
                     return $this->buildConnectionResponse($records, $totalCount, $afterCursor, $first);
@@ -473,6 +494,7 @@ class ResolverService
             if ($sourceValue === null || $sourceValue === '') {
                 return $isList ? [] : null;
             }
+            assert(is_int($sourceValue) || is_string($sourceValue));
         }
 
         // Get target table
@@ -489,6 +511,9 @@ class ResolverService
         }
 
         try {
+            $parentUid = $root['uid'] ?? null;
+            assert(is_int($parentUid) || is_string($parentUid));
+
             switch ($storageType) {
                 case 'uid':
                     return $this->resolveUidRelation($targetTable, (int)$sourceValue, $info);
@@ -505,7 +530,7 @@ class ResolverService
                     return $this->resolveMmRelation(
                         $targetTable,
                         $mmTable,
-                        (int)$root['uid'],
+                        (int)$parentUid,
                         $relationConfig,
                         $info
                     );
@@ -519,7 +544,7 @@ class ResolverService
                     return $this->resolveForeignKeyRelation(
                         $targetTable,
                         $foreignKeyField,
-                        (int)$root['uid'],
+                        (int)$parentUid,
                         $info
                     );
 
@@ -587,7 +612,7 @@ class ResolverService
      * @param string $targetTable
      * @param string $mmTable
      * @param int $sourceUid
-     * @param array<string, mixed> $relationConfig
+     * @param RelationConfig $relationConfig
      * @param ResolveInfo $info
      * @return array<array<int|string, mixed>>
      */
@@ -616,7 +641,11 @@ class ResolverService
             return [];
         }
 
-        $targetUids = array_column($mmRecords, $mmTargetField);
+        /** @var list<int> $targetUids */
+        $targetUids = array_map(
+            static fn(mixed $v): int => is_int($v) ? $v : (int)(is_string($v) ? $v : 0),
+            array_column($mmRecords, $mmTargetField)
+        );
 
         return $this->batchLoadRecords($targetTable, $targetUids, $info);
     }
@@ -652,7 +681,9 @@ class ResolverService
 
         // Cache individual records for potential reuse
         foreach ($records as $record) {
-            $cacheKey = "{$targetTable}:{$record['uid']}";
+            /** @var int|string $uid */
+            $uid = $record['uid'];
+            $cacheKey = $targetTable . ':' . $uid;
             $this->batchCache[$cacheKey] = $record;
         }
 
@@ -697,7 +728,9 @@ class ResolverService
 
             // Cache and index by UID
             foreach ($fetchedRecords as $record) {
-                $uid = (int)$record['uid'];
+                /** @var int|string $recordUid */
+                $recordUid = $record['uid'];
+                $uid = (int)$recordUid;
                 $cacheKey = "{$table}:{$uid}";
                 $this->batchCache[$cacheKey] = $record;
                 $results[$uid] = $record;
@@ -826,16 +859,18 @@ class ResolverService
         $fields = ['uid']; // Always include UID for cursor generation
 
         $selection = $info->getFieldSelection(3);
-        $nodeFields = $selection['edges']['node'] ?? [];
+        $edgesSelection = $selection['edges'] ?? [];
+        $nodeFields = is_array($edgesSelection) ? ($edgesSelection['node'] ?? []) : [];
 
         $nodeType = $this->getNodeTypeFromConnection($info);
-        if ($nodeType === null) {
+        if ($nodeType === null || !is_array($nodeFields)) {
             return $fields;
         }
 
         $typeFields = $nodeType->getFields();
 
         foreach ($nodeFields as $fieldName => $sub) {
+            $fieldName = (string)$fieldName;
             if (!isset($typeFields[$fieldName])) {
                 continue;
             }
@@ -881,8 +916,10 @@ class ResolverService
 
         $edges = [];
         foreach ($records as $record) {
+            /** @var int|string $recordUid */
+            $recordUid = $record['uid'];
             $edges[] = [
-                'cursor' => $this->encodeCursor((int)$record['uid']),
+                'cursor' => $this->encodeCursor((int)$recordUid),
                 'node' => $record,
             ];
         }
