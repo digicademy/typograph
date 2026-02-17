@@ -26,7 +26,6 @@
 
 namespace Digicademy\TypoGraph\Service;
 
-use Exception;
 use GraphQL\GraphQL;
 use GraphQL\Language\AST\DocumentNode;
 use GraphQL\Language\Parser;
@@ -194,7 +193,7 @@ class ResolverService
             }
 
             $output = $result->toArray();
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             $this->logger->error($e->getMessage());
             $output = null;
         }
@@ -411,7 +410,7 @@ class ResolverService
                 $result = $queryBuilder
                     ->executeQuery()
                     ->fetchAllAssociative();
-            } catch (Exception $e) {
+            } catch (\Exception $e) {
                 $this->logger->error($e->getMessage());
                 $result = [];
             }
@@ -552,7 +551,7 @@ class ResolverService
                     $this->logger->error("Unknown storage type: {$storageType} for relation {$relationKey}");
                     return $isList ? [] : null;
             }
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             $this->logger->error("Error resolving relation {$relationKey}: " . $e->getMessage());
             return $isList ? [] : null;
         }

@@ -9,10 +9,10 @@ use GraphQL\Type\Definition\ListOfType;
 use GraphQL\Type\Definition\ObjectType;
 use GraphQL\Type\Definition\ResolveInfo;
 use GraphQL\Type\Definition\Type;
-use TYPO3\CMS\Core\Core\ApplicationContext;
-use TYPO3\CMS\Core\Core\Environment;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
+use TYPO3\CMS\Core\Core\ApplicationContext;
+use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -1597,8 +1597,7 @@ GRAPHQL;
             FrontendInterface::class,
             [
                 'has' => false,
-                'set' => function () {
-                },
+                'set' => function () {},
             ]
         );
 
@@ -1629,8 +1628,7 @@ GRAPHQL;
             FrontendInterface::class,
             [
                 'has' => false,
-                'set' => function () {
-                },
+                'set' => function () {},
             ]
         );
 
