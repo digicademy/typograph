@@ -114,12 +114,25 @@ class ResolverService
      */
     public function configure(array $settings): void
     {
-        $this->schemaFiles  = $settings['schemaFiles'] ?? [];
-        $this->tableMapping = $settings['tableMapping'] ?? [];
-        $this->relations    = $this->flattenRelationsConfig($settings['relations'] ?? []);
-        $this->defaultLimit = (int)($settings['pagination']['defaultLimit'] ?? 20);
-        $this->maxLimit     = (int)($settings['pagination']['maxLimit'] ?? 100);
-        $this->schema       = null;
+        $schemaFiles = $settings['schemaFiles'] ?? [];
+        $this->schemaFiles = is_array($schemaFiles)
+            ? array_values(array_map('strval', $schemaFiles))
+            : [];
+
+        $tableMapping = $settings['tableMapping'] ?? [];
+        $this->tableMapping = is_array($tableMapping)
+            ? array_map('strval', $tableMapping)
+            : [];
+
+        $relations = $settings['relations'] ?? [];
+        $this->relations = $this->flattenRelationsConfig(is_array($relations) ? $relations : []);
+
+        $pagination = $settings['pagination'] ?? [];
+        $pagination = is_array($pagination) ? $pagination : [];
+        $this->defaultLimit = (int)($pagination['defaultLimit'] ?? 20);
+        $this->maxLimit     = (int)($pagination['maxLimit'] ?? 100);
+
+        $this->schema = null;
     }
 
     /**

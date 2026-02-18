@@ -37,7 +37,7 @@ use Psr\Http\Server\{
     MiddlewareInterface,
     RequestHandlerInterface
 };
-use TYPO3\CMS\Core\Site\Entity\SiteInterface;
+use TYPO3\CMS\Core\Site\Entity\Site;
 
 /**
  * PSR-15 Middleware that provides a GraphQL API endpoint.
@@ -66,7 +66,7 @@ class ApiMiddleware implements MiddlewareInterface
 
         if (preg_match('#^(/graphql)/?#', $path)) {
             $site = $request->getAttribute('site');
-            $typographConfig = $site instanceof SiteInterface
+            $typographConfig = $site instanceof Site
                 ? ($site->getConfiguration()['typograph'] ?? [])
                 : [];
             $this->resolver->configure($typographConfig);
