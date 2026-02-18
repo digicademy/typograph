@@ -8,38 +8,33 @@ If you want to use this extension, you need to be sufficiently familiar with the
 
 ## Integration
 
-Add a new page for the endpoint. The slug for the page must be `/graphql`. Add the *TypoGraph GraphQL Endpoint* plugin as the only content element to this page. That's it!
-
-Now you can configure your plugin.
+The extension uses a middleware to provide a GraphQL endpoint under `/graphql`. After installing the extension, only some further configuration needed.
 
 ## Configuration
 
-The TypoGraph extension requires minimal TypoScript configuration.
+TypoGraph is configured via the TYPO3 site configuration file (`config/sites/{site-identifier}/config.yaml`), under a top-level `typograph:` key.
 
-1. `schemaFiles`: Define the locations of the GraphQL schema files to use (more about schema files below). It makes sense for them to be located somewhere in the `Resources\Private` folder of your sitepackage but can really be located anywhere in your filesystem as long as TYPO3 can access that location.
-2. `tableMapping`: The TypoGraph extension fetched data for its responses from your database table and therefore needs to know which type gets data from which table. This can be mapped as `{type name} = {table name}` pair.
+1. `schemaFiles`: Define the locations of the GraphQL schema files to use (more about schema files below). It makes sense for them to be located somewhere in the `Resources/Private` folder of your sitepackage but can really be located anywhere in your filesystem as long as TYPO3 can access that location.
+2. `tableMapping`: The TypoGraph extension fetches data for its responses from your database tables and therefore needs to know which type gets data from which table. This is configured as `{typeName}: {tableName}` pairs.
 
 Here is an example for an application that uses the types `Foo` and `Bar`. For better maintainability, the schema is split into three files, one for the Query schema and one for each type schema (all of this could also be the content of one single file, of course). These are listed in `schemaFiles`. Note that the TypoGraph resolver will concatenate the content of the schema files in the order they are listed in the configuration.
 
 A GraphQL request will provide one or more type names. The data for these types can come from any TYPO3 database table, even though it's likely that you will want to re-use tables serving conventional Extbase domain models. For the TypoGraph resolver to know which table to query for which entity, you need to provide a list of pairs of entity names and table names, as seen below.
 
-```
-# TypoGraph extension configuration
-plugin.tx_typograph.settings {
+```yaml
+# config/sites/{site-identifier}/config.yaml
+typograph:
 
   # Schema files
-  schemaFiles {
-    0 = EXT:sitepackage/Resources/Private/Schemas/Query.graphql
-    1 = EXT:sitepackage/Resources/Private/Schemas/Foo.graphql
-    2 = EXT:sitepackage/Resources/Private/Schemas/Bar.graphql
-  }
+  schemaFiles:
+    - 'EXT:sitepackage/Resources/Private/Schemas/Query.graphql'
+    - 'EXT:sitepackage/Resources/Private/Schemas/Foo.graphql'
+    - 'EXT:sitepackage/Resources/Private/Schemas/Bar.graphql'
 
   # Types to tables mapping
-  tableMapping {
-    foo = tx_myextension_domain_model_foo
-    bar = tx_myextension_domain_model_bar
-  }
-}
+  tableMapping:
+    foo: tx_myextension_domain_model_foo
+    bar: tx_myextension_domain_model_bar
 ```
 
 ## Relation Configuration
@@ -57,27 +52,25 @@ Without explicit configuration, TypoGraph will log a warning and return `null` f
 
 ### Relation Configuration Structure
 
-Relations are configured under `plugin.tx_typograph.settings.relations` using the format `{TypeName}.{fieldName}`:
+Relations are configured under the `typograph.relations` key in the site configuration, nested as `{TypeName}: {fieldName}: {config}`:
 
-```typoscript
-plugin.tx_typograph.settings {
-  relations {
-    TypeName.fieldName {
-      sourceField = database_column_name
-      targetType = RelatedTypeName
-      storageType = uid|commaSeparated|mmTable|foreignKey
+```yaml
+typograph:
+  relations:
+    TypeName:
+      fieldName:
+        sourceField: database_column_name
+        targetType: RelatedTypeName
+        storageType: uid  # uid | commaSeparated | mmTable | foreignKey
 
-      # Additional fields for mmTable storage type:
-      mmTable = tx_some_mm_table
-      mmSourceField = uid_local
-      mmTargetField = uid_foreign
-      mmSortingField = sorting
+        # Additional fields for mmTable storage type:
+        mmTable: tx_some_mm_table
+        mmSourceField: uid_local
+        mmTargetField: uid_foreign
+        mmSortingField: sorting
 
-      # Additional fields for foreignKey storage type:
-      foreignKeyField = column_in_target_table
-    }
-  }
-}
+        # Additional fields for foreignKey storage type:
+        foreignKeyField: column_in_target_table
 ```
 
 ### Configuration Fields
@@ -116,14 +109,14 @@ type Taxonomy {
 ```
 
 **Configuration:**
-```typoscript
-relations {
-  Taxonomy.mainDiscipline {
-    sourceField = main_discipline
-    targetType = Discipline
-    storageType = uid
-  }
-}
+```yaml
+typograph:
+  relations:
+    Taxonomy:
+      mainDiscipline:
+        sourceField: main_discipline
+        targetType: Discipline
+        storageType: uid
 ```
 
 #### 2. Comma-Separated UIDs (`commaSeparated`)
@@ -147,14 +140,14 @@ type Taxonomy {
 ```
 
 **Configuration:**
-```typoscript
-relations {
-  Taxonomy.disciplines {
-    sourceField = disciplines
-    targetType = Discipline
-    storageType = commaSeparated
-  }
-}
+```yaml
+typograph:
+  relations:
+    Taxonomy:
+      disciplines:
+        sourceField: disciplines
+        targetType: Discipline
+        storageType: commaSeparated
 ```
 
 #### 3. MM Table (`mmTable`)
@@ -186,17 +179,17 @@ type Expert {
 ```
 
 **Configuration:**
-```typoscript
-relations {
-  Expert.disciplines {
-    targetType = Discipline
-    storageType = mmTable
-    mmTable = tx_expert_discipline_mm
-    mmSourceField = uid_local
-    mmTargetField = uid_foreign
-    mmSortingField = sorting
-  }
-}
+```yaml
+typograph:
+  relations:
+    Expert:
+      disciplines:
+        targetType: Discipline
+        storageType: mmTable
+        mmTable: tx_expert_discipline_mm
+        mmSourceField: uid_local
+        mmTargetField: uid_foreign
+        mmSortingField: sorting
 ```
 
 #### 4. Foreign Key / Inverse Relation (`foreignKey`)
@@ -238,14 +231,14 @@ type Discipline {
 ```
 
 **Configuration:**
-```typoscript
-relations {
-  Taxonomy.disciplines {
-    targetType = Discipline
-    storageType = foreignKey
-    foreignKeyField = discipline_taxonomy
-  }
-}
+```yaml
+typograph:
+  relations:
+    Taxonomy:
+      disciplines:
+        targetType: Discipline
+        storageType: foreignKey
+        foreignKeyField: discipline_taxonomy
 ```
 
 **How it works:**
@@ -262,60 +255,58 @@ relations {
 
 Here's a complete example with multiple relation types:
 
-```typoscript
-# TypoGraph extension configuration
-plugin.tx_typograph.settings {
+```yaml
+# config/sites/{site-identifier}/config.yaml
+typograph:
 
   # Schema files
-  schemaFiles {
-    0 = EXT:pkf_website/Resources/Private/Schemas/Query.graphql
-    1 = EXT:pkf_website/Resources/Private/Schemas/Taxonomy.graphql
-    2 = EXT:pkf_website/Resources/Private/Schemas/Discipline.graphql
-    3 = EXT:pkf_website/Resources/Private/Schemas/Expert.graphql
-  }
+  schemaFiles:
+    - 'EXT:pkf_website/Resources/Private/Schemas/Query.graphql'
+    - 'EXT:pkf_website/Resources/Private/Schemas/Taxonomy.graphql'
+    - 'EXT:pkf_website/Resources/Private/Schemas/Discipline.graphql'
+    - 'EXT:pkf_website/Resources/Private/Schemas/Expert.graphql'
 
   # Root elements to tables mapping
-  tableMapping {
-    disciplines = tx_dmdb_domain_model_discipline
-    experts = tx_academy_domain_model_persons
-    taxonomies = tx_dmdb_domain_model_discipline_taxonomy
-  }
+  # Plain-list fields and their Connection counterparts must both be mapped
+  tableMapping:
+    disciplines: tx_dmdb_domain_model_discipline
+    disciplinesConnection: tx_dmdb_domain_model_discipline
+    experts: tx_academy_domain_model_persons
+    expertsConnection: tx_academy_domain_model_persons
+    taxonomies: tx_dmdb_domain_model_discipline_taxonomy
+    taxonomiesConnection: tx_dmdb_domain_model_discipline_taxonomy
 
   # Relation configuration
-  relations {
+  relations:
 
-    # Single UID relation
-    Taxonomy.mainDiscipline {
-      sourceField = main_discipline
-      targetType = Discipline
-      storageType = uid
-    }
+    Taxonomy:
+      # Single UID relation
+      mainDiscipline:
+        sourceField: main_discipline
+        targetType: Discipline
+        storageType: uid
 
-    # Comma-separated UIDs relation
-    Taxonomy.disciplines {
-      sourceField = disciplines
-      targetType = Discipline
-      storageType = commaSeparated
-    }
+      # Comma-separated UIDs relation
+      disciplines:
+        sourceField: disciplines
+        targetType: Discipline
+        storageType: commaSeparated
 
-    # MM table relation
-    Expert.disciplines {
-      targetType = Discipline
-      storageType = mmTable
-      mmTable = tx_academy_persons_discipline_mm
-      mmSourceField = uid_local
-      mmTargetField = uid_foreign
-      mmSortingField = sorting
-    }
+      # Foreign key relation (inverse/sloppy MM)
+      relatedDisciplines:
+        targetType: Discipline
+        storageType: foreignKey
+        foreignKeyField: discipline_taxonomy
 
-    # Foreign key relation (inverse/sloppy MM)
-    Taxonomy.relatedDisciplines {
-      targetType = Discipline
-      storageType = foreignKey
-      foreignKeyField = discipline_taxonomy
-    }
-  }
-}
+    Expert:
+      # MM table relation
+      disciplines:
+        targetType: Discipline
+        storageType: mmTable
+        mmTable: tx_academy_persons_discipline_mm
+        mmSourceField: uid_local
+        mmTargetField: uid_foreign
+        mmSortingField: sorting
 ```
 
 ### GraphQL Query Example
@@ -331,7 +322,7 @@ With the configuration above, you can now query nested relations:
     }
   }
 
-  experts(first: 10) {
+  expertsConnection(first: 10) {
     edges {
       node {
         familyName
@@ -372,14 +363,14 @@ type PageInfo {
 }
 ```
 
-Add it as the first schema file in your TypoScript configuration:
+Add it as the first entry in `schemaFiles` in the site configuration:
 
-```typoscript
-schemaFiles {
-  0 = EXT:typograph/Resources/Private/Schemas/Pagination.graphql
-  1 = EXT:sitepackage/Resources/Private/Schemas/Query.graphql
-  # ...
-}
+```yaml
+typograph:
+  schemaFiles:
+    - 'EXT:typograph/Resources/Private/Schemas/Pagination.graphql'
+    - 'EXT:sitepackage/Resources/Private/Schemas/Query.graphql'
+    # ...
 ```
 
 **2. Define Connection and Edge types for your entity:**
@@ -402,27 +393,30 @@ type ExpertEdge {
 }
 ```
 
-**3. Update the Query type to return the Connection type:**
+**3. Define both a plain-list field and a Connection field in the Query type:**
+
+The recommended convention is to expose two root fields per entity: a plain-list field for unpaginated access and a `*Connection` field for paginated access. This preserves backwards compatibility for clients that do not need pagination.
 
 ```graphql
 type Query {
-  experts(familyName: String, first: Int, after: String): ExpertConnection
+  experts(familyName: String): [Expert]
+  expertsConnection(familyName: String, first: Int, after: String): ExpertConnection
 }
 ```
 
-The `first` and `after` arguments are recognized as pagination arguments and are **not** turned into WHERE conditions. All other arguments (like `familyName`) continue to work as filters.
+The `first` and `after` arguments on the Connection field are recognised as pagination arguments and are **not** turned into WHERE conditions. All other arguments (like `familyName`) continue to work as filters on both fields.
+
+Both field names must be present in `tableMapping` (see [Configuration](#configuration)).
 
 ### Pagination Configuration
 
-Configure default and maximum page sizes via TypoScript:
+Configure default and maximum page sizes in the site configuration:
 
-```typoscript
-plugin.tx_typograph.settings {
-  pagination {
-    defaultLimit = 20
-    maxLimit = 100
-  }
-}
+```yaml
+typograph:
+  pagination:
+    defaultLimit: 20
+    maxLimit: 100
 ```
 
 | Setting | Default | Description |
@@ -436,7 +430,7 @@ plugin.tx_typograph.settings {
 
 ```graphql
 {
-  experts(first: 10) {
+  expertsConnection(first: 10) {
     edges {
       cursor
       node {
@@ -457,7 +451,7 @@ plugin.tx_typograph.settings {
 
 ```graphql
 {
-  experts(first: 10, after: "Y3Vyc29yOjQy") {
+  expertsConnection(first: 10, after: "Y3Vyc29yOjQy") {
     edges {
       cursor
       node {
@@ -478,7 +472,7 @@ plugin.tx_typograph.settings {
 
 ```graphql
 {
-  experts(familyName: "Smith", first: 5) {
+  expertsConnection(familyName: "Smith", first: 5) {
     edges {
       node {
         familyName
@@ -501,7 +495,7 @@ A paginated response has this shape:
 ```json
 {
   "data": {
-    "experts": {
+    "expertsConnection": {
       "edges": [
         {
           "cursor": "Y3Vyc29yOjE=",
@@ -536,7 +530,7 @@ A paginated response has this shape:
 
 TypoGraph implements a **DataLoader pattern** to prevent N+1 query problems:
 
-1. **Batch Loading**: All related records are fetched in a single optimized query per relation type
+1. **Batch Loading**: All related records are fetched in a single optimised query per relation type
 2. **Request-Scoped Caching**: Each record is loaded only once per GraphQL request
 3. **Field Selection**: Only fields requested in the GraphQL query are fetched from the database
 4. **Order Preservation**: Related records are returned in the same order as stored (respects MM table sorting)
@@ -549,7 +543,7 @@ TypoGraph implements a **DataLoader pattern** to prevent N+1 query problems:
 
 TypoGraph logs helpful warnings and errors when relations are misconfigured:
 
-- **Missing configuration**: "Relation Taxonomy.disciplines is not configured in TypoScript"
+- **Missing configuration**: "Relation Taxonomy.disciplines is not configured in the site configuration"
 - **Missing targetType**: "Relation Taxonomy.disciplines is missing targetType configuration"
 - **Unmapped target**: "Target type Discipline is not mapped to a table in tableMapping"
 - **Missing MM table**: "Relation Expert.disciplines with storageType=mmTable is missing mmTable configuration"
