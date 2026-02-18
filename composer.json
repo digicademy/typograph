@@ -29,7 +29,6 @@
     "codeception/module-asserts": "*",
     "codeception/module-db": "^3.2",
     "codeception/verify": "^3.2",
-    "phpstan/phpstan": "^2",
     "ssch/typo3-rector": "^3.8",
     "typo3/coding-standards": "^0.8.0",
     "a9f/typo3-fractor": "^0.5.0"
@@ -45,9 +44,6 @@
     }
   },
   "config": {
-    "allow-plugins": true,
-    "audit": {
-      "ignore": ["PKSA-y2cr-5h3j-g3ys"]
-    }
+    "allow-plugins": true
   }
 }
