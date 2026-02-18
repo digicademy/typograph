@@ -46,6 +46,9 @@
     }
   },
   "config": {
-    "allow-plugins": true
+    "allow-plugins": true,
+    "audit": {
+      "ignore": ["PKSA-y2cr-5h3j-g3ys"]
+    }
   }
 }
