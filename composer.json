@@ -1,49 +1,52 @@
 {
-  "name": "digicademy/typograph",
-  "type": "typo3-cms-extension",
-  "description": "TYPO3 GraphQL Endpoint Extension",
-  "homepage": "http://www.digitale-akademie.de",
-  "authors": [
-    {
-      "name": "Frodo Podschwadek",
-      "email": "frodo.podschwadek@adwmainz.de",
-      "role": "Developer",
-      "homepage": "http://www.adwmainz.de"
-    }
-  ],
-  "license": [
-    "GPL-2.0+"
-  ],
-  "keywords": [
-    "TYPO3"
-  ],
-  "version": "0.9.0",
-  "require": {
-    "php": "^8.3",
-    "typo3/cms-core": "^12.4",
-    "webonyx/graphql-php": "^15"
-  },
-  "require-dev": {
-    "codeception/codeception": "^5.2",
-    "codeception/module-phpbrowser": "*",
-    "codeception/module-asserts": "*",
-    "codeception/module-db": "^3.2",
-    "codeception/verify": "^3.2",
-    "ssch/typo3-rector": "^3.8",
-    "typo3/coding-standards": "^0.8.0",
-    "a9f/typo3-fractor": "^0.5.0"
-  },
-  "autoload": {
-    "psr-4": {
-      "Digicademy\\TypoGraph\\": "Classes/"
-    }
-  },
-  "extra": {
-    "typo3/cms": {
-      "extension-key": "typograph"
-    }
-  },
-  "config": {
-    "allow-plugins": true
-  }
+	"name": "digicademy/typograph",
+	"type": "typo3-cms-extension",
+	"description": "TYPO3 GraphQL Endpoint Extension",
+	"homepage": "http://www.digitale-akademie.de",
+	"authors": [
+		{
+			"name": "Frodo Podschwadek",
+			"email": "frodo.podschwadek@adwmainz.de",
+			"role": "Developer",
+			"homepage": "http://www.adwmainz.de"
+		}
+	],
+	"license": [
+		"GPL-2.0+"
+	],
+	"keywords": [
+		"TYPO3"
+	],
+	"version": "0.9.0",
+	"require": {
+		"php": "^8.3",
+		"typo3/cms-core": "^12.4",
+		"webonyx/graphql-php": "^15"
+	},
+	"require-dev": {
+		"codeception/codeception": "^5.2",
+		"codeception/module-phpbrowser": "*",
+		"codeception/module-asserts": "*",
+		"codeception/module-db": "^3.2",
+		"codeception/verify": "^3.2",
+		"ssch/typo3-rector": "^3.8",
+		"typo3/coding-standards": "^0.8.0",
+		"a9f/typo3-fractor": "^0.5.0"
+	},
+	"autoload": {
+		"psr-4": {
+			"Digicademy\\TypoGraph\\": "Classes/"
+		}
+	},
+	"extra": {
+		"typo3/cms": {
+			"extension-key": "typograph"
+		}
+	},
+	"config": {
+		"allow-plugins": true,
+		"audit": {
+			"ignore": ["PKSA-y2cr-5h3j-g3ys"]
+		}
+	}
 }
