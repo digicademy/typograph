@@ -22,15 +22,3 @@ $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['typograph_
     ??= [];
 $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['typograph_schema_cache']['backend']
     ??= SimpleFileBackend::class;
-
-// Plugin configuration
-ExtensionUtility::configurePlugin(
-    'TypoGraph',
-    'Endpoint',
-    [
-        EndpointController::class => 'serialise',
-    ],
-    [
-        EndpointController::class => 'serialise',
-    ]
-);

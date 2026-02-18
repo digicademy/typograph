@@ -43,7 +43,6 @@ use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
 
 /**
  * @phpstan-type RelationConfig array{
@@ -98,20 +97,29 @@ class ResolverService
 
     public function __construct(
         private readonly ConnectionPool $connectionPool,
-        private readonly ConfigurationManagerInterface $configurationManager,
         private readonly FrontendInterface $cache,
         private readonly LoggerInterface $logger
     ) {
-        $settings = $this->configurationManager->getConfiguration(
-            ConfigurationManagerInterface::CONFIGURATION_TYPE_SETTINGS,
-            'typograph'
-        );
+        $this->schemaFiles = [];
+        $this->tableMapping = [];
+        $this->relations = [];
+        $this->defaultLimit = 20;
+        $this->maxLimit = 100;
+    }
 
-        $this->schemaFiles = $settings['schemaFiles'] ?? [];
+    /**
+     * Configure the resolver from a settings array (e.g. from site configuration).
+     *
+     * @param array<string, mixed> $settings
+     */
+    public function configure(array $settings): void
+    {
+        $this->schemaFiles  = $settings['schemaFiles'] ?? [];
         $this->tableMapping = $settings['tableMapping'] ?? [];
-        $this->relations = $this->flattenRelationsConfig($settings['relations'] ?? []);
+        $this->relations    = $this->flattenRelationsConfig($settings['relations'] ?? []);
         $this->defaultLimit = (int)($settings['pagination']['defaultLimit'] ?? 20);
-        $this->maxLimit = (int)($settings['pagination']['maxLimit'] ?? 100);
+        $this->maxLimit     = (int)($settings['pagination']['maxLimit'] ?? 100);
+        $this->schema       = null;
     }
 
     /**
