@@ -1,3 +1,0 @@
-includes:
-	- phpstan.neon
-	- vendor/saschaegerer/phpstan-typo3/extension.neon
