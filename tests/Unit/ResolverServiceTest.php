@@ -16,7 +16,6 @@ use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
-use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
 
 class ResolverServiceTest extends Unit
 {
@@ -32,15 +31,14 @@ type User {
 GRAPHQL;
 
     private ConnectionPool $connectionPool;
-    private ConfigurationManagerInterface $configurationManager;
     private FrontendInterface $cache;
     private LoggerInterface $logger;
     private ResolverService $service;
+    private array $serviceSettings = ['tableMapping' => ['users' => 'fe_users', 'user' => 'fe_users']];
 
     protected function _before(): void
     {
         $this->connectionPool = $this->makeEmpty(ConnectionPool::class);
-        $this->configurationManager = $this->makeEmpty(ConfigurationManagerInterface::class);
         $this->cache = $this->makeEmpty(FrontendInterface::class);
         $this->logger = $this->makeEmpty(LoggerInterface::class);
     }
@@ -51,43 +49,29 @@ GRAPHQL;
 
     public function testConstructorLoadsSettingsCorrectly(): void
     {
-        $settings = [
-            'schemaFiles' => ['EXT:typograph/Resources/Private/GraphQL/schema.graphql'],
-            'tableMapping' => ['users' => 'fe_users', 'posts' => 'tt_content'],
-        ];
-
-        $this->configurationManager = $this->makeEmpty(
-            ConfigurationManagerInterface::class,
-            [
-                'getConfiguration' => $settings,
-            ]
-        );
-
         $service = new ResolverService(
             $this->connectionPool,
-            $this->configurationManager,
             $this->cache,
             $this->logger
         );
+
+        $service->configure([
+            'schemaFiles' => ['EXT:typograph/Resources/Private/GraphQL/schema.graphql'],
+            'tableMapping' => ['users' => 'fe_users', 'posts' => 'tt_content'],
+        ]);
 
         verify($service)->instanceOf(ResolverService::class);
     }
 
     public function testConstructorHandlesMissingSettings(): void
     {
-        $this->configurationManager = $this->makeEmpty(
-            ConfigurationManagerInterface::class,
-            [
-                'getConfiguration' => [],
-            ]
-        );
-
         $service = new ResolverService(
             $this->connectionPool,
-            $this->configurationManager,
             $this->cache,
             $this->logger
         );
+
+        $service->configure([]);
 
         verify($service)->instanceOf(ResolverService::class);
     }
@@ -196,16 +180,6 @@ GRAPHQL;
             ]
         );
 
-        $this->configurationManager = $this->makeEmpty(
-            ConfigurationManagerInterface::class,
-            [
-                'getConfiguration' => [
-                    'schemaFiles' => [],
-                    'tableMapping' => ['users' => 'fe_users'],
-                ],
-            ]
-        );
-
         // Use construct() to mock readSchemaFiles() as fallback for development mode
         // This ensures the test works regardless of Environment::getContext() value
         $this->service = $this->construct(
@@ -213,6 +187,7 @@ GRAPHQL;
             $this->getServiceConstructorArgs(),
             ['readSchemaFiles' => $schemaContent]
         );
+        $this->service->configure(['schemaFiles' => [], 'tableMapping' => ['users' => 'fe_users']]);
 
         $schema = $this->invokePrivateMethod($this->service, 'getSchema');
         verify($schema)->instanceOf(\GraphQL\Type\Schema::class);
@@ -1586,12 +1561,7 @@ GRAPHQL;
 
     private function setupServiceWithSettings(array $settings, string $schemaContent): void
     {
-        $this->configurationManager = $this->makeEmpty(
-            ConfigurationManagerInterface::class,
-            [
-                'getConfiguration' => $settings,
-            ]
-        );
+        $this->serviceSettings = $settings;
 
         $this->cache = $this->makeEmpty(
             FrontendInterface::class,
@@ -1610,19 +1580,15 @@ GRAPHQL;
             $this->getServiceConstructorArgs(),
             ['getSchema' => $schema]
         );
+        $this->service->configure($settings);
     }
 
     private function setupServiceWithSchema(string $schemaContent): void
     {
-        $this->configurationManager = $this->makeEmpty(
-            ConfigurationManagerInterface::class,
-            [
-                'getConfiguration' => [
-                    'schemaFiles' => [],
-                    'tableMapping' => ['users' => 'fe_users', 'user' => 'fe_users'],
-                ],
-            ]
-        );
+        $this->serviceSettings = [
+            'schemaFiles' => [],
+            'tableMapping' => ['users' => 'fe_users', 'user' => 'fe_users'],
+        ];
 
         $this->cache = $this->makeEmpty(
             FrontendInterface::class,
@@ -1641,12 +1607,14 @@ GRAPHQL;
             $this->getServiceConstructorArgs(),
             ['getSchema' => $schema]
         );
+        $this->service->configure([
+            'schemaFiles' => [],
+            'tableMapping' => ['users' => 'fe_users', 'user' => 'fe_users'],
+        ]);
     }
 
     private function setupServiceWithSchemaForCacheTest(string $schemaContent): void
     {
-        $this->configurationManager = $this->createEmptyConfigurationManager();
-
         // Mock readSchemaFiles() instead of getSchema() to allow the real
         // getSchema() logic to run, which will properly call cache->set()
         $this->service = $this->construct(
@@ -1654,47 +1622,34 @@ GRAPHQL;
             $this->getServiceConstructorArgs(),
             ['readSchemaFiles' => $schemaContent]
         );
+        $this->service->configure(['schemaFiles' => [], 'tableMapping' => []]);
     }
 
     private function createService(): ResolverService
     {
-        return new ResolverService(
+        $service = new ResolverService(
             $this->connectionPool,
-            $this->configurationManager,
             $this->cache,
             $this->logger
         );
-    }
-
-    private function createEmptyConfigurationManager(): ConfigurationManagerInterface
-    {
-        return $this->makeEmpty(
-            ConfigurationManagerInterface::class,
-            [
-                'getConfiguration' => [
-                    'schemaFiles' => [],
-                    'tableMapping' => [],
-                ],
-            ]
-        );
+        $service->configure($this->serviceSettings);
+        return $service;
     }
 
     private function createServiceWithMockedReadSchemaFiles(string $content): void
     {
-        $this->configurationManager = $this->createEmptyConfigurationManager();
-
         $this->service = $this->construct(
             ResolverService::class,
             $this->getServiceConstructorArgs(),
             ['readSchemaFiles' => $content]
         );
+        $this->service->configure(['schemaFiles' => [], 'tableMapping' => []]);
     }
 
     private function getServiceConstructorArgs(): array
     {
         return [
             $this->connectionPool,
-            $this->configurationManager,
             $this->cache,
             $this->logger,
         ];
