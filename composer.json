@@ -17,7 +17,7 @@
 	"keywords": [
 		"TYPO3"
 	],
-	"version": "0.9.0",
+	"version": "0.30.0",
 	"require": {
 		"php": "^8.3",
 		"typo3/cms-core": "^12.4",
