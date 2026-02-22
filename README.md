@@ -528,7 +528,7 @@ A paginated response has this shape:
 
 ### Performance Characteristics
 
-TypoGraph implements a **DataLoader pattern** to prevent N+1 query problems:
+TypoGraph implements a [**DataLoader pattern**](https://www.graphql-js.org/docs/n1-dataloader/) to prevent N+1 query problems:
 
 1. **Batch Loading**: All related records are fetched in a single optimised query per relation type
 2. **Request-Scoped Caching**: Each record is loaded only once per GraphQL request
