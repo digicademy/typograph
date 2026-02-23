@@ -779,7 +779,34 @@ class ResolverService
     {
         $fields = ['uid']; // Always include UID for caching
 
+        // Unwrap the return type to reach the ObjectType so we can inspect
+        // each selected field's own type and skip relation fields.
+        $type = $info->returnType;
+        while ($type instanceof NonNull || $type instanceof ListOfType) {
+            $type = $type->getWrappedType();
+        }
+
+        if (!($type instanceof ObjectType)) {
+            return $fields;
+        }
+
+        $typeFields = $type->getFields();
+
         foreach ($info->getFieldSelection(1) as $field => $_) {
+            if (!isset($typeFields[$field])) {
+                continue;
+            }
+
+            $fieldType = $typeFields[$field]->getType();
+            while ($fieldType instanceof NonNull || $fieldType instanceof ListOfType) {
+                $fieldType = $fieldType->getWrappedType();
+            }
+
+            // Skip relation fields — they are resolved separately, not SELECTed
+            if ($fieldType instanceof ObjectType) {
+                continue;
+            }
+
             $snakeCaseField = GeneralUtility::camelCaseToLowerCaseUnderscored($field);
             if (!in_array($snakeCaseField, $fields)) {
                 $fields[] = $snakeCaseField;
