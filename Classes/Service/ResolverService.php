@@ -973,8 +973,16 @@ class ResolverService
 
         $parentType = $info->returnType;
 
-        // Unwrap ListOfType to get the actual object type
+        // Unwrap NonNull and ListOfType to reach the underlying ObjectType.
+        // Return types like [Taxonomy!]! are represented as
+        // NonNull(ListOf(NonNull(Taxonomy))), so both wrappers must be peeled.
+        if ($parentType instanceof NonNull) {
+            $parentType = $parentType->getWrappedType();
+        }
         if ($parentType instanceof ListOfType) {
+            $parentType = $parentType->getWrappedType();
+        }
+        if ($parentType instanceof NonNull) {
             $parentType = $parentType->getWrappedType();
         }
 
