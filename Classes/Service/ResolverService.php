@@ -323,11 +323,14 @@ class ResolverService
 
         // Root field resolution (Query.model)
         //
-        // Note that we need to check whether this is actually one of our
-        // defined root aliases for a table to query. Only for these we can
-        // and want to run a database query.
-        if (is_array($root) && isset($root[0]) && in_array($root[0], $rootTables)) {
-            $rootTable = $this->tableMapping[$root[0]];
+        // $root is the numeric array returned by getRootFieldNames(), which
+        // signals we are at the Query level. isset($root[0]) distinguishes this
+        // from nested resolver calls where $root is an associative DB record.
+        // The actual field being resolved comes from $info->fieldName — using
+        // $root[0] would always resolve the first root field's table, breaking
+        // queries that request multiple root fields simultaneously.
+        if (is_array($root) && isset($root[0]) && in_array($info->fieldName, $rootTables)) {
+            $rootTable = $this->tableMapping[$info->fieldName];
             $isConnection = $this->isConnectionType($info);
 
             // Separate pagination args from filter args
