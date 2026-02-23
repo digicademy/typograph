@@ -466,12 +466,13 @@ class ResolverService
     {
         $type = $info->returnType;
 
-        // Unwrap ListOfType to get to the actual type
-        if ($type instanceof ListOfType) {
+        // Peel all NonNull and ListOf wrappers to reach the named type.
+        // [Discipline!] is ListOf(NonNull(Discipline)), so a single unwrap
+        // of ListOfType leaves NonNull(Discipline) which is not an ObjectType.
+        while ($type instanceof NonNull || $type instanceof ListOfType) {
             $type = $type->getWrappedType();
         }
 
-        // Check if it's an ObjectType (not a scalar)
         return $type instanceof ObjectType;
     }
 
@@ -999,8 +1000,14 @@ class ResolverService
                 $fieldDef = $typeFields[$fieldName];
                 $fieldType = $fieldDef->getType();
 
-                // Unwrap ListOfType if present
+                // Unwrap ListOfType and NonNull to reach the inner type.
+                // [Discipline!] is ListOf(NonNull(Discipline)); without peeling
+                // the NonNull the ObjectType check below would pass incorrectly
+                // and add the relation field name to the SELECT columns.
                 if ($fieldType instanceof ListOfType) {
+                    $fieldType = $fieldType->getWrappedType();
+                }
+                if ($fieldType instanceof NonNull) {
                     $fieldType = $fieldType->getWrappedType();
                 }
 
