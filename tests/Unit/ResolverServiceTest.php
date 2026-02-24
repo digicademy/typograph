@@ -323,7 +323,7 @@ GRAPHQL;
         $this->setupServiceWithSchema('type Query { test: String } type User { id: Int }');
         $this->service = $this->createService();
 
-        $resolveInfo = $this->createMockResolveInfo(['id' => true]);
+        $resolveInfo = $this->createMockResolveInfo(['id' => true], 'unknownField');
 
         $result = $this->invokePrivateMethod(
             $this->service,
@@ -1733,7 +1733,7 @@ GRAPHQL;
         return $this->makeEmpty(ResolveInfo::class, [
             'getFieldSelection' => $fieldSelection,
             'fieldName' => $fieldName,
-            'returnType' => Type::string(),
+            'returnType' => new ListOfType(Type::string()),
         ]);
     }
 
