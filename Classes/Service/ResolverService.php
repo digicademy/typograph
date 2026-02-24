@@ -26,6 +26,7 @@
 
 namespace Digicademy\TypoGraph\Service;
 
+use GraphQL\Executor\ExecutionResult;
 use GraphQL\GraphQL;
 use GraphQL\Language\AST\DocumentNode;
 use GraphQL\Language\Parser;
@@ -213,6 +214,11 @@ class ResolverService
             }
 
             $output = $result->toArray();
+        } catch (\GraphQL\Error\Error $e) {
+            // GraphQL-level errors (e.g. syntax errors) are returned as a
+            // structured error response rather than silently swallowed.
+            $this->logger->error($e->getMessage());
+            $output = (new ExecutionResult(null, [$e]))->toArray();
         } catch (\Exception $e) {
             $this->logger->error($e->getMessage());
             $output = null;
@@ -332,6 +338,14 @@ class ResolverService
             $rootTable = $this->tableMapping[$info->fieldName];
             $isConnection = $this->isConnectionType($info);
 
+            // Detect whether the return type is a list (e.g. taxonomies) or a
+            // singular nullable object (e.g. taxonomy). Unwrap one NonNull level
+            // to reach ListOfType if present.
+            $unwrappedReturnType = $info->returnType instanceof NonNull
+                ? $info->returnType->getWrappedType()
+                : $info->returnType;
+            $isList = $unwrappedReturnType instanceof ListOfType;
+
             // Separate pagination args from filter args
             $filterArgs = [];
             $paginationArgs = [];
@@ -425,17 +439,24 @@ class ResolverService
                     return $this->buildConnectionResponse($records, $totalCount, $afterCursor, $first);
                 }
 
-                // Plain list type (non-connection)
+                // Plain list or singular object (non-connection)
                 if ($conditions !== []) {
                     $queryBuilder->where(...$conditions);
                 }
 
-                $result = $queryBuilder
-                    ->executeQuery()
-                    ->fetchAllAssociative();
+                if ($isList) {
+                    $result = $queryBuilder
+                        ->executeQuery()
+                        ->fetchAllAssociative();
+                } else {
+                    $fetched = $queryBuilder
+                        ->executeQuery()
+                        ->fetchAssociative();
+                    $result = $fetched !== false ? $fetched : null;
+                }
             } catch (\Exception $e) {
                 $this->logger->error($e->getMessage());
-                $result = [];
+                $result = $isList ? [] : null;
             }
 
             return $result;
