@@ -133,6 +133,7 @@ class ResolverService
         $this->maxLimit     = (int)($pagination['maxLimit'] ?? 100);
 
         $this->schema = null;
+        $this->batchCache = [];
     }
 
     /**
@@ -187,14 +188,12 @@ class ResolverService
         $variableValues = isset($input['variables']) ? $input['variables'] : null;
         $schema = $this->getSchema();
 
-        $rootFields = $this->getRootFieldNames($query);
-
         try {
-            $root = [];
+            $rootFields = $this->getRootFieldNames($query);
             $result = GraphQL::executeQuery(
                 $schema,
                 $query,
-                $this->getRootFieldNames($query),
+                $rootFields,
                 null,
                 $variableValues,
                 null,
@@ -443,6 +442,15 @@ class ResolverService
         }
 
         // Nested field resolution (Model.foo, Model.bar, etc.)
+        //
+        // Connection/edge wrapper fields (edges, pageInfo, node, …) are pre-built
+        // arrays stored directly in $root by buildConnectionResponse(). Return them
+        // immediately so they are never mistaken for DB relations.
+        $fieldName = $info->fieldName;
+        if (array_key_exists($fieldName, $root) && is_array($root[$fieldName])) {
+            return $root[$fieldName];
+        }
+
         // Check if this field is a relation
         if ($this->isRelationField($info)) {
             return $this->resolveRelation($root, $info);
@@ -451,7 +459,6 @@ class ResolverService
         // Look up the field directly first (handles camelCase keys from
         // connection responses like pageInfo, hasNextPage, totalCount, etc.),
         // then fall back to snake_case conversion for database column names.
-        $fieldName = $info->fieldName;
         if (array_key_exists($fieldName, $root)) {
             return $root[$fieldName];
         }
@@ -805,8 +812,21 @@ class ResolverService
                 $fieldType = $fieldType->getWrappedType();
             }
 
-            // Skip relation fields — they are resolved separately, not SELECTed
             if ($fieldType instanceof ObjectType) {
+                // For uid/commaSeparated relations the FK source column is a scalar
+                // in the DB but maps to an ObjectType in GraphQL. Include it in
+                // SELECT so resolveRelation() can read $root[$sourceField].
+                $relationKey = "{$type->name}.{$field}";
+                if (isset($this->relations[$relationKey])) {
+                    $storageType = $this->relations[$relationKey]['storageType'] ?? '';
+                    if (in_array($storageType, ['uid', 'commaSeparated'])) {
+                        $sourceField = $this->relations[$relationKey]['sourceField']
+                            ?? GeneralUtility::camelCaseToLowerCaseUnderscored($field);
+                        if (!in_array($sourceField, $fields)) {
+                            $fields[] = $sourceField;
+                        }
+                    }
+                }
                 continue;
             }
 
@@ -937,11 +957,24 @@ class ResolverService
                 $fieldType = $fieldType->getWrappedType();
             }
 
-            // Only include scalar fields
+            // Only include scalar fields; for uid/commaSeparated relations also
+            // include the FK source column even though the GraphQL type is ObjectType.
             if (!($fieldType instanceof ObjectType)) {
                 $snakeCaseField = GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
                 if (!in_array($snakeCaseField, $fields)) {
                     $fields[] = $snakeCaseField;
+                }
+            } else {
+                $relationKey = "{$nodeType->name}.{$fieldName}";
+                if (isset($this->relations[$relationKey])) {
+                    $storageType = $this->relations[$relationKey]['storageType'] ?? '';
+                    if (in_array($storageType, ['uid', 'commaSeparated'])) {
+                        $sourceField = $this->relations[$relationKey]['sourceField']
+                            ?? GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
+                        if (!in_array($sourceField, $fields)) {
+                            $fields[] = $sourceField;
+                        }
+                    }
                 }
             }
         }
@@ -1041,11 +1074,24 @@ class ResolverService
                     $fieldType = $fieldType->getWrappedType();
                 }
 
-                // Only include if it's NOT an ObjectType (i.e., it's a scalar)
+                // Only include if it's NOT an ObjectType (i.e., it's a scalar);
+                // for uid/commaSeparated relations also include the FK source column.
                 if (!($fieldType instanceof ObjectType)) {
                     $snakeCaseField = GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
                     if (!in_array($snakeCaseField, $fields)) {
                         $fields[] = $snakeCaseField;
+                    }
+                } else {
+                    $relationKey = "{$parentType->name}.{$fieldName}";
+                    if (isset($this->relations[$relationKey])) {
+                        $storageType = $this->relations[$relationKey]['storageType'] ?? '';
+                        if (in_array($storageType, ['uid', 'commaSeparated'])) {
+                            $sourceField = $this->relations[$relationKey]['sourceField']
+                                ?? GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
+                            if (!in_array($sourceField, $fields)) {
+                                $fields[] = $sourceField;
+                            }
+                        }
                     }
                 }
             }
