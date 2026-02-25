@@ -1,0 +1,9 @@
+actor: ApiTester
+suite_namespace: Tests\Api
+modules:
+  enabled:
+    - REST:
+        url: http://webserver/graphql
+        depends: PhpBrowser
+        part: Json
+    - \Tests\Support\Helper\ApiAssertions
