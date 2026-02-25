@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Tested successfully against TYPO£ 12.4, 13.4. and 14.1. This pterodactyl is ready to fly.
+- Tested successfully against TYPO3 12.4, 13.4. and 14.1. This pterodactyl is ready to fly.
 
 ## [0.31.0] - 2026-02-25
 
