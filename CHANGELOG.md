@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-02-25
+
+### Added
+
+- CLI command for example setup (database, schemas, configuration)
+- API tests
+
+### Changed
+
+- Reduced README (it's in the docs now)
+
+### Fixed
+
+- various bugs, mainly related to nested objects that had not been properly unwrapped
+
 ## [0.30.0] - 2026-02-18
 
 Major refactoring; away from controller-based request/response handling and
