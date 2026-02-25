@@ -117,12 +117,12 @@ class ResolverService
     {
         $schemaFiles = $settings['schemaFiles'] ?? [];
         $this->schemaFiles = is_array($schemaFiles)
-            ? array_values(array_map('strval', $schemaFiles))
+            ? array_values(array_map(static fn(mixed $v): string => is_string($v) ? $v : '', $schemaFiles))
             : [];
 
         $tableMapping = $settings['tableMapping'] ?? [];
         $this->tableMapping = is_array($tableMapping)
-            ? array_map('strval', $tableMapping)
+            ? array_map(static fn(mixed $v): string => is_string($v) ? $v : '', $tableMapping)
             : [];
 
         $relations = $settings['relations'] ?? [];
@@ -130,8 +130,10 @@ class ResolverService
 
         $pagination = $settings['pagination'] ?? [];
         $pagination = is_array($pagination) ? $pagination : [];
-        $this->defaultLimit = (int)($pagination['defaultLimit'] ?? 20);
-        $this->maxLimit     = (int)($pagination['maxLimit'] ?? 100);
+        $rawDefault = $pagination['defaultLimit'] ?? null;
+        $this->defaultLimit = is_numeric($rawDefault) ? (int)$rawDefault : 20;
+        $rawMax = $pagination['maxLimit'] ?? null;
+        $this->maxLimit = is_numeric($rawMax) ? (int)$rawMax : 100;
 
         $this->schema = null;
         $this->batchCache = [];
@@ -180,7 +182,7 @@ class ResolverService
     {
         $input = json_decode($json, true);
 
-        if (!is_array($input) || !isset($input['query'])) {
+        if (!is_array($input) || !isset($input['query']) || !is_string($input['query'])) {
             $this->logger->error('Invalid JSON input or missing query field');
             return json_encode(null) ?: null;
         }
@@ -310,7 +312,7 @@ class ResolverService
      * longer and cannot be optimised if only certain fields are required by a
      * query.
      *
-     * @param  array<string>     $root    Array of root field names or empty array
+     * @param  array<array-key, mixed>  $root    Array of root field names or parent DB record
      * @param  array<string|int> $args    GraphQL query arguments
      * @param  array<mixed>      $context Context data (currently not in use)
      * @param  ResolveInfo       $info    Info about query details, e.g., fields
@@ -334,7 +336,7 @@ class ResolverService
         // The actual field being resolved comes from $info->fieldName — using
         // $root[0] would always resolve the first root field's table, breaking
         // queries that request multiple root fields simultaneously.
-        if (is_array($root) && isset($root[0]) && in_array($info->fieldName, $rootTables)) {
+        if (isset($root[0]) && in_array($info->fieldName, $rootTables)) {
             $rootTable = $this->tableMapping[$info->fieldName];
             $isConnection = $this->isConnectionType($info);
 

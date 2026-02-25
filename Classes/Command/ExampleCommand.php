@@ -141,7 +141,8 @@ class ExampleCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $siteIdentifier = (string)$input->getOption('site');
+        $option = $input->getOption('site');
+        $siteIdentifier = is_string($option) ? $option : 'main';
         $skipSeed = (bool)$input->getOption('no-seed');
 
         $this->recreateTables($output);
@@ -343,7 +344,7 @@ class ExampleCommand extends Command
             $template = self::BIOGRAPHY_TEMPLATES[array_rand(self::BIOGRAPHY_TEMPLATES)];
             $biography = sprintf($template, $firstName, $lastName, $primaryName);
 
-            $maxMm = min(3, count($disciplineUids));
+            $maxMm = max(1, min(3, count($disciplineUids)));
             $mmCount = random_int(1, $maxMm);
             $shuffledUids = $disciplineUids;
             shuffle($shuffledUids);
@@ -394,7 +395,8 @@ class ExampleCommand extends Command
             throw new \RuntimeException('Site config file not found: ' . $configFile);
         }
 
-        $configuration = Yaml::parseFile($configFile) ?? [];
+        $raw = Yaml::parseFile($configFile);
+        $configuration = is_array($raw) ? $raw : [];
         $configuration['typograph'] = $this->getTypographConfiguration();
         ksort($configuration);
         file_put_contents($configFile, Yaml::dump($configuration, 99, 2));
