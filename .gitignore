@@ -1,5 +1,7 @@
 .DS_Store
 .php-cs-fixer.cache
+Documentation-GENERATED-temp/
 vendor/
 composer.lock
 public/_assets/
+Example*.graphql
