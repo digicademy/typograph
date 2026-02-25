@@ -41,9 +41,11 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
  * configuration for TypoGraph API testing.
  *
  * Run this once before executing the API test suite to prepare the
- * database and site configuration. Because the command runs in the
- * CLI process before the webserver handles any requests, the
- * OPcache issue affecting CLI-written site config files is avoided.
+ * database and site configuration. Flush the TYPO3 and PHP caches manually
+ * via the application backend to avoid potential OPcache issues affecting
+ * cached site.
+ *
+ * @see https://github.com/TYPO3-Console/TYPO3-Console/issues/983#issuecomment-824619309
  *
  * Usage:
  *   vendor/bin/typo3 typograph:example --site=main
