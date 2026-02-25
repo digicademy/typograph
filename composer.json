@@ -17,10 +17,10 @@
 	"keywords": [
 		"TYPO3"
 	],
-	"version": "0.30.0",
+	"version": "0.31.0",
 	"require": {
-		"php": "^8.3",
-		"typo3/cms-core": "^12.4",
+		"php": "8.3 - 8.5",
+		"typo3/cms-core": "12.4 - 13.4",
 		"webonyx/graphql-php": "^15"
 	},
 	"require-dev": {

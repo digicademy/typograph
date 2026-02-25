@@ -8,10 +8,10 @@ $EM_CONF[$_EXTKEY] = [
     'author_email' => 'frodo.podschwadek@adwmainz.de',
     'state' => 'dev',
     'author_company' => 'Academy of Sciences and Literature | Mainz',
-    'version' => '0.30.0',
+    'version' => '0.31.0',
     'constraints' => [
         'depends' => [
-            'typo3' => '12.4.0-12.4.99',
+            'typo3' => '12.4.0-13.4.99',
         ],
         'conflicts' => [
         ],
