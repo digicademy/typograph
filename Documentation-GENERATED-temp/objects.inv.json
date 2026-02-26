@@ -1,0 +1,404 @@
+{
+    "std:doc": {
+        "Configuration\/Index": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Index.html",
+            "Configuration"
+        ],
+        "Configuration\/Relations\/Index": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html",
+            "Configuring Relations"
+        ],
+        "ErrorHandling\/Index": [
+            "TypoGraph",
+            "0.30.0",
+            "ErrorHandling\/Index.html",
+            "Error Handling"
+        ],
+        "Example\/Index": [
+            "TypoGraph",
+            "0.30.0",
+            "Example\/Index.html",
+            "Example Setup"
+        ],
+        "Index": [
+            "TypoGraph",
+            "0.30.0",
+            "Index.html",
+            "TypoGraph"
+        ],
+        "Installation\/Index": [
+            "TypoGraph",
+            "0.30.0",
+            "Installation\/Index.html",
+            "Installation"
+        ],
+        "Introduction\/Index": [
+            "TypoGraph",
+            "0.30.0",
+            "Introduction\/Index.html",
+            "Introduction"
+        ],
+        "Pagination\/Index": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html",
+            "Pagination"
+        ]
+    },
+    "std:label": {
+        "configuration": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Index.html#configuration",
+            "Configuration"
+        ],
+        "relations": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#relations",
+            "Configuring Relations"
+        ],
+        "h2-configuration-relations-why": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h2-configuration-relations-why",
+            "Why Relations Need Configuration"
+        ],
+        "h2-configuration-relations-structure": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h2-configuration-relations-structure",
+            "Relation Configuration Structure"
+        ],
+        "h2-configuration-relations-fields": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h2-configuration-relations-fields",
+            "Configuration Fields"
+        ],
+        "h2-configuration-relations-storage-types": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h2-configuration-relations-storage-types",
+            "Storage Types"
+        ],
+        "h3-configuration-relations-storage-type-single-uid": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h3-configuration-relations-storage-type-single-uid",
+            "1. Single UID (uid)"
+        ],
+        "h3-configuration-relations-storage-type-comma-separated": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h3-configuration-relations-storage-type-comma-separated",
+            "2. Comma-Separated UIDs (commaSeparated)"
+        ],
+        "h3-configuration-relations-storage-type-mm-table": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h3-configuration-relations-storage-type-mm-table",
+            "3. MM Table (mmTable)"
+        ],
+        "h3-configuration-relations-storage-type-foreign-key": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h3-configuration-relations-storage-type-foreign-key",
+            "4. Foreign Key \/ Inverse Relation (foreignKey)"
+        ],
+        "h2-configuration-relations-complete-config-example": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h2-configuration-relations-complete-config-example",
+            "Complete Configuration Example"
+        ],
+        "h2-configuration-relations-query-example": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h2-configuration-relations-query-example",
+            "GraphQL Query Example"
+        ],
+        "error-handling": [
+            "TypoGraph",
+            "0.30.0",
+            "ErrorHandling\/Index.html#error_handling",
+            "Error Handling"
+        ],
+        "example": [
+            "TypoGraph",
+            "0.30.0",
+            "Example\/Index.html#example",
+            "Example Setup"
+        ],
+        "start": [
+            "TypoGraph",
+            "0.30.0",
+            "Index.html#start",
+            "TypoGraph"
+        ],
+        "installation": [
+            "TypoGraph",
+            "0.30.0",
+            "Installation\/Index.html#installation",
+            "Installation"
+        ],
+        "introduction": [
+            "TypoGraph",
+            "0.30.0",
+            "Introduction\/Index.html#introduction",
+            "Introduction"
+        ],
+        "h2-performance": [
+            "TypoGraph",
+            "0.30.0",
+            "Introduction\/Index.html#h2-performance",
+            "Performance Characteristics"
+        ],
+        "h2-origins": [
+            "TypoGraph",
+            "0.30.0",
+            "Introduction\/Index.html#h2-origins",
+            "Origins"
+        ],
+        "h2-ai-note": [
+            "TypoGraph",
+            "0.30.0",
+            "Introduction\/Index.html#h2-ai-note",
+            "AI Note"
+        ],
+        "pagination": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#pagination",
+            "Pagination"
+        ],
+        "h2-pagination-how-it-works": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h2-pagination-how-it-works",
+            "How It Works"
+        ],
+        "h2-pagination-schema-setup": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h2-pagination-schema-setup",
+            "Schema Setup"
+        ],
+        "h3-pagination-schema-setup-include-pageinfo-type": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h3-pagination-schema-setup-include-pageinfo-type",
+            "1. Include the shared PageInfo type"
+        ],
+        "h3-pagination-schema-setup-define-types": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h3-pagination-schema-setup-define-types",
+            "2. Define Connection and Edge types for your entity"
+        ],
+        "h3-pagination-schema-setup-define-fields": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h3-pagination-schema-setup-define-fields",
+            "3. Define both a plain-list field and a Connection field in the Query type"
+        ],
+        "h2-pagination-configuration": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h2-pagination-configuration",
+            "Pagination Configuration"
+        ],
+        "h2-pagination-query": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h2-pagination-query",
+            "Querying with Pagination"
+        ],
+        "h2-pagination-response-structure": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h2-pagination-response-structure",
+            "Response Structure"
+        ]
+    },
+    "std:title": {
+        "configuration-1": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Index.html#configuration",
+            "Configuration"
+        ],
+        "configuring-relations": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#relations",
+            "Configuring Relations"
+        ],
+        "why-relations-need-configuration": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h2-configuration-relations-why",
+            "Why Relations Need Configuration"
+        ],
+        "relation-configuration-structure": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h2-configuration-relations-structure",
+            "Relation Configuration Structure"
+        ],
+        "configuration-fields": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h2-configuration-relations-fields",
+            "Configuration Fields"
+        ],
+        "storage-types": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h2-configuration-relations-storage-types",
+            "Storage Types"
+        ],
+        "1-single-uid-uid": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h3-configuration-relations-storage-type-single-uid",
+            "1. Single UID (uid)"
+        ],
+        "2-comma-separated-uids-commaseparated": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h3-configuration-relations-storage-type-comma-separated",
+            "2. Comma-Separated UIDs (commaSeparated)"
+        ],
+        "3-mm-table-mmtable": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h3-configuration-relations-storage-type-mm-table",
+            "3. MM Table (mmTable)"
+        ],
+        "4-foreign-key-inverse-relation-foreignkey": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h3-configuration-relations-storage-type-foreign-key",
+            "4. Foreign Key \/ Inverse Relation (foreignKey)"
+        ],
+        "complete-configuration-example": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h2-configuration-relations-complete-config-example",
+            "Complete Configuration Example"
+        ],
+        "graphql-query-example": [
+            "TypoGraph",
+            "0.30.0",
+            "Configuration\/Relations\/Index.html#h2-configuration-relations-query-example",
+            "GraphQL Query Example"
+        ],
+        "error-handling": [
+            "TypoGraph",
+            "0.30.0",
+            "ErrorHandling\/Index.html#error_handling",
+            "Error Handling"
+        ],
+        "example-setup": [
+            "TypoGraph",
+            "0.30.0",
+            "Example\/Index.html#example",
+            "Example Setup"
+        ],
+        "typograph": [
+            "TypoGraph",
+            "0.30.0",
+            "Index.html#start",
+            "TypoGraph"
+        ],
+        "installation-1": [
+            "TypoGraph",
+            "0.30.0",
+            "Installation\/Index.html#installation",
+            "Installation"
+        ],
+        "introduction-1": [
+            "TypoGraph",
+            "0.30.0",
+            "Introduction\/Index.html#introduction",
+            "Introduction"
+        ],
+        "performance-characteristics": [
+            "TypoGraph",
+            "0.30.0",
+            "Introduction\/Index.html#h2-performance",
+            "Performance Characteristics"
+        ],
+        "origins": [
+            "TypoGraph",
+            "0.30.0",
+            "Introduction\/Index.html#h2-origins",
+            "Origins"
+        ],
+        "ai-note": [
+            "TypoGraph",
+            "0.30.0",
+            "Introduction\/Index.html#h2-ai-note",
+            "AI Note"
+        ],
+        "pagination-1": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#pagination",
+            "Pagination"
+        ],
+        "how-it-works": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h2-pagination-how-it-works",
+            "How It Works"
+        ],
+        "schema-setup": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h2-pagination-schema-setup",
+            "Schema Setup"
+        ],
+        "1-include-the-shared-pageinfo-type": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h3-pagination-schema-setup-include-pageinfo-type",
+            "1. Include the shared PageInfo type"
+        ],
+        "2-define-connection-and-edge-types-for-your-entity": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h3-pagination-schema-setup-define-types",
+            "2. Define Connection and Edge types for your entity"
+        ],
+        "3-define-both-a-plain-list-field-and-a-connection-field-in-the-query-type": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h3-pagination-schema-setup-define-fields",
+            "3. Define both a plain-list field and a Connection field in the Query type"
+        ],
+        "pagination-configuration": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h2-pagination-configuration",
+            "Pagination Configuration"
+        ],
+        "querying-with-pagination": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h2-pagination-query",
+            "Querying with Pagination"
+        ],
+        "response-structure": [
+            "TypoGraph",
+            "0.30.0",
+            "Pagination\/Index.html#h2-pagination-response-structure",
+            "Response Structure"
+        ]
+    }
+}
