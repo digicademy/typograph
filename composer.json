@@ -2,7 +2,7 @@
 	"name": "digicademy/typograph",
 	"type": "typo3-cms-extension",
 	"description": "TYPO3 GraphQL Endpoint Extension",
-	"homepage": "http://www.digitale-akademie.de",
+	"homepage": "https://digicademy.github.io/typograph",
 	"authors": [
 		{
 			"name": "Frodo Podschwadek",
