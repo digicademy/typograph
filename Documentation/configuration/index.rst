@@ -8,13 +8,13 @@ TypoGraph is configured via the TYPO3 site configuration file
 (`config/sites/<site-identifier>/config.yaml`), under a top-level `typograph:`
 key.
 
-#. `schemaFiles`: Define the locations of the GraphQL schema files to use (more
-about schema files below). It makes sense for them to be located somewhere in
-the `Resources/Private` folder of your sitepackage but can really be located
-anywhere in your filesystem as long as TYPO3 can access that location.
-#. `tableMapping`: The TypoGraph extension fetches data for its responses from
-your database tables and therefore needs to know which type gets data from which
-table. This is configured as `<type name>: <table name>` pairs.
+#.  `schemaFiles`: Define the locations of the GraphQL schema files to use (more
+    about schema files below). It makes sense for them to be located somewhere in
+    the `Resources/Private` folder of your sitepackage but can really be located
+    anywhere in your filesystem as long as TYPO3 can access that location.
+#.  `tableMapping`: The TypoGraph extension fetches data for its responses from
+    your database tables and therefore needs to know which type gets data from which
+    table. This is configured as `<type name>: <table name>` pairs.
 
 Here is an example for an application that uses the types `Taxonomy`,
 `Discipline` and `Expert`. For better maintainability, the schema is split into
