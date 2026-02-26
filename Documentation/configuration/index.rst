@@ -56,4 +56,4 @@ configure the relations between different tables for TypoGraph.
    :titlesonly:
    :glob:
 
-   Relations/Index
+   relations/index
