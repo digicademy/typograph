@@ -17,4 +17,4 @@ For details on installation, configuration, and use visit the project GitHub pag
 This software is licensed under the terms of the GNU General Public License v2
 as published by the Free Software Foundation.
 
-Author: <a href="https://orcid.org/0000-0002-0953-2818">Frodo Podschwadek</a> | <a href="https://www.adwmainz.de">Academy of Sciences and Literature | Mainz</a>
+Author: Frodo Podschwadek | <a href="https://www.adwmainz.de">Academy of Sciences and Literature | Mainz</a>
