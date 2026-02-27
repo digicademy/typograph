@@ -25,6 +25,9 @@ jobs:
       - name: Run PHP CS Fixer
         run: vendor/bin/php-cs-fixer fix
 
+      - name: Remove generated files not belonging to extension
+        run: rm -f public/index.php
+
       - name: Commit and push fixes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
