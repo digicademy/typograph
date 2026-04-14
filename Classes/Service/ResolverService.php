@@ -39,6 +39,7 @@ use GraphQL\Type\Definition\{
 use GraphQL\Type\Schema;
 use GraphQL\Utils\BuildSchema;
 use GraphQL\Validator\DocumentValidator;
+use Digicademy\TypoGraph\Comparator\ComparatorInterface;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Core\Environment;
@@ -92,14 +93,16 @@ class ResolverService
     protected int $maxLimit;
 
     /**
-     * Pagination args that must not be treated as WHERE conditions
+     * Reserved argument names that must not be treated as WHERE conditions.
+     * Includes pagination args and the optional sortBy argument.
      */
-    protected const PAGINATION_ARGS = ['first', 'after'];
+    protected const RESERVED_ARGS = ['first', 'after', 'sortBy'];
 
     public function __construct(
         private readonly ConnectionPool $connectionPool,
         private readonly FrontendInterface $cache,
-        private readonly LoggerInterface $logger
+        private readonly LoggerInterface $logger,
+        private readonly ?ComparatorInterface $comparator = null
     ) {
         $this->schemaFiles = [];
         $this->tableMapping = [];
@@ -348,11 +351,14 @@ class ResolverService
                 : $info->returnType;
             $isList = $unwrappedReturnType instanceof ListOfType;
 
-            // Separate pagination args from filter args
+            // Separate reserved args (pagination, sorting) from filter args
             $filterArgs = [];
             $paginationArgs = [];
+            $sortByOverride = null;
             foreach ($args as $key => $value) {
-                if (in_array($key, self::PAGINATION_ARGS)) {
+                if ($key === 'sortBy') {
+                    $sortByOverride = is_string($value) ? GeneralUtility::camelCaseToLowerCaseUnderscored($value) : null;
+                } elseif (in_array($key, self::RESERVED_ARGS)) {
                     $paginationArgs[$key] = $value;
                 } else {
                     $filterArgs[$key] = $value;
@@ -410,6 +416,18 @@ class ResolverService
                         ->executeQuery()
                         ->fetchAllAssociative();
 
+                    // Sort records within the current page using the
+                    // injected comparator. The extra lookahead record
+                    // (used for hasNextPage detection) is excluded from
+                    // sorting and re-appended afterward.
+                    if (count($records) > $first) {
+                        $pageRecords = array_slice($records, 0, $first);
+                        $pageRecords = $this->applySorting($pageRecords, $sortByOverride);
+                        $records = array_merge($pageRecords, [end($records)]);
+                    } else {
+                        $records = $this->applySorting($records, $sortByOverride);
+                    }
+
                     // Determine totalCount only if requested in selection
                     $totalCount = 0;
                     $selection = $info->getFieldSelection(1);
@@ -450,6 +468,7 @@ class ResolverService
                     $result = $queryBuilder
                         ->executeQuery()
                         ->fetchAllAssociative();
+                    $result = $this->applySorting($result, $sortByOverride);
                 } else {
                     $fetched = $queryBuilder
                         ->executeQuery()
@@ -487,6 +506,35 @@ class ResolverService
         }
         $snakeCaseFieldName = GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
         return $root[$snakeCaseFieldName] ?? null;
+    }
+
+    /**
+     * Sort records using the configured comparator, if applicable.
+     *
+     * Sorting is applied only when a ComparatorInterface implementation
+     * has been injected and a sort field is provided via the `sortBy`
+     * query argument.
+     *
+     * If the sort field does not exist in the record arrays, records are
+     * compared on empty strings, effectively preserving the original order.
+     *
+     * @param array<array<string, mixed>> $records Records to sort
+     * @param string|null $sortField Database column name (snake_case) to sort by
+     * @return array<array<string, mixed>> Sorted records, or original order if no sorting applies
+     */
+    protected function applySorting(array $records, ?string $sortField): array
+    {
+        if ($this->comparator === null || $sortField === null || $sortField === '') {
+            return $records;
+        }
+
+        usort($records, function (array $a, array $b) use ($sortField): int {
+            $valA = (string)($a[$sortField] ?? '');
+            $valB = (string)($b[$sortField] ?? '');
+            return $this->comparator->compare($valA, $valB);
+        });
+
+        return $records;
     }
 
     /**

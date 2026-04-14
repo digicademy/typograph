@@ -17,4 +17,5 @@ services:
   Digicademy\TypoGraph\Service\ResolverService:
     arguments:
       $cache: '@cache.typograph_schema_cache'
+      $comparator: '@?Digicademy\TypoGraph\Comparator\ComparatorInterface'
 

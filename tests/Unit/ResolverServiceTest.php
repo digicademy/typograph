@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use Codeception\Test\Unit;
+use Digicademy\TypoGraph\Comparator\ComparatorInterface;
 use Digicademy\TypoGraph\Service\ResolverService;
 use GraphQL\Language\AST\DocumentNode;
 use GraphQL\Type\Definition\ListOfType;
@@ -1474,6 +1475,248 @@ GRAPHQL;
     }
 
     // =========================================================================
+    // applySorting() Tests
+    // =========================================================================
+
+    public function testApplySortingWithNoComparator(): void
+    {
+        $service = new ResolverService(
+            $this->connectionPool,
+            $this->cache,
+            $this->logger,
+            null
+        );
+
+        $records = [
+            ['uid' => 1, 'family_name' => 'Zimmermann'],
+            ['uid' => 2, 'family_name' => 'Albrecht'],
+        ];
+
+        $result = $this->invokePrivateMethod($service, 'applySorting', [$records, 'family_name']);
+        verify($result)->equals($records);
+    }
+
+    public function testApplySortingWithComparatorAndSortField(): void
+    {
+        $comparator = $this->makeEmpty(ComparatorInterface::class, [
+            'compare' => function (string $a, string $b): int {
+                return strcmp($a, $b);
+            },
+        ]);
+
+        $service = new ResolverService(
+            $this->connectionPool,
+            $this->cache,
+            $this->logger,
+            $comparator
+        );
+
+        $records = [
+            ['uid' => 1, 'family_name' => 'Zimmermann'],
+            ['uid' => 2, 'family_name' => 'Albrecht'],
+            ['uid' => 3, 'family_name' => 'Mueller'],
+        ];
+
+        $result = $this->invokePrivateMethod($service, 'applySorting', [$records, 'family_name']);
+
+        verify($result[0]['family_name'])->equals('Albrecht');
+        verify($result[1]['family_name'])->equals('Mueller');
+        verify($result[2]['family_name'])->equals('Zimmermann');
+    }
+
+    public function testApplySortingWithNullSortFieldReturnsOriginalOrder(): void
+    {
+        $comparator = $this->makeEmpty(ComparatorInterface::class, [
+            'compare' => function (string $a, string $b): int {
+                return strcmp($a, $b);
+            },
+        ]);
+
+        $service = new ResolverService(
+            $this->connectionPool,
+            $this->cache,
+            $this->logger,
+            $comparator
+        );
+
+        $records = [
+            ['uid' => 1, 'family_name' => 'Zimmermann'],
+            ['uid' => 2, 'family_name' => 'Albrecht'],
+        ];
+
+        $result = $this->invokePrivateMethod($service, 'applySorting', [$records, null]);
+        verify($result)->equals($records);
+    }
+
+    public function testApplySortingWithEmptyRecords(): void
+    {
+        $comparator = $this->makeEmpty(ComparatorInterface::class, [
+            'compare' => function (string $a, string $b): int {
+                return strcmp($a, $b);
+            },
+        ]);
+
+        $service = new ResolverService(
+            $this->connectionPool,
+            $this->cache,
+            $this->logger,
+            $comparator
+        );
+
+        $result = $this->invokePrivateMethod($service, 'applySorting', [[], 'family_name']);
+        verify($result)->equals([]);
+    }
+
+    public function testApplySortingWithNonexistentFieldPreservesOrder(): void
+    {
+        $comparator = $this->makeEmpty(ComparatorInterface::class, [
+            'compare' => function (string $a, string $b): int {
+                return strcmp($a, $b);
+            },
+        ]);
+
+        $service = new ResolverService(
+            $this->connectionPool,
+            $this->cache,
+            $this->logger,
+            $comparator
+        );
+
+        $records = [
+            ['uid' => 1, 'family_name' => 'Zimmermann'],
+            ['uid' => 2, 'family_name' => 'Albrecht'],
+        ];
+
+        // Nonexistent field — all values are empty strings,
+        // so compare returns 0 and order is effectively preserved
+        $result = $this->invokePrivateMethod($service, 'applySorting', [$records, 'nonexistent']);
+        verify(count($result))->equals(2);
+    }
+
+    public function testPlainListQueryWithSortByArgument(): void
+    {
+        $schema = <<<'GRAPHQL'
+type Query {
+    experts(sortBy: String): [Expert]
+}
+
+type Expert {
+    familyName: String
+    givenName: String
+}
+GRAPHQL;
+
+        $comparator = $this->makeEmpty(ComparatorInterface::class, [
+            'compare' => function (string $a, string $b): int {
+                return strcmp($a, $b);
+            },
+        ]);
+
+        $queryBuilder = $this->createFluentQueryBuilder([
+            ['uid' => 1, 'family_name' => 'Albrecht', 'given_name' => 'Zara'],
+            ['uid' => 2, 'family_name' => 'Zimmermann', 'given_name' => 'Anna'],
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(
+            ConnectionPool::class,
+            ['getQueryBuilderForTable' => $queryBuilder]
+        );
+
+        $settings = [
+            'schemaFiles' => [],
+            'tableMapping' => ['experts' => 'tx_academy_domain_model_persons'],
+        ];
+
+        $this->cache = $this->makeEmpty(
+            FrontendInterface::class,
+            ['has' => false, 'set' => function () {}]
+        );
+
+        $builtSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+
+        $this->service = $this->construct(
+            ResolverService::class,
+            $this->getServiceConstructorArgs($comparator),
+            ['getSchema' => $builtSchema]
+        );
+        $this->service->configure($settings);
+
+        $queryJson = json_encode([
+            'query' => '{ experts(sortBy: "givenName") { familyName givenName } }',
+        ]);
+
+        $result = $this->service->process($queryJson);
+        $decoded = json_decode($result, true);
+
+        verify($decoded['data']['experts'][0]['givenName'])->equals('Anna');
+        verify($decoded['data']['experts'][1]['givenName'])->equals('Zara');
+    }
+
+    public function testPlainListQueryWithoutSortByReturnsOriginalOrder(): void
+    {
+        $schema = <<<'GRAPHQL'
+type Query {
+    experts(sortBy: String): [Expert]
+}
+
+type Expert {
+    familyName: String
+    givenName: String
+}
+GRAPHQL;
+
+        $comparator = $this->makeEmpty(ComparatorInterface::class, [
+            'compare' => function (string $a, string $b): int {
+                return strcmp($a, $b);
+            },
+        ]);
+
+        $queryBuilder = $this->createFluentQueryBuilder([
+            ['uid' => 1, 'family_name' => 'Zimmermann', 'given_name' => 'Max'],
+            ['uid' => 2, 'family_name' => 'Albrecht', 'given_name' => 'Anna'],
+        ]);
+
+        $this->connectionPool = $this->makeEmpty(
+            ConnectionPool::class,
+            ['getQueryBuilderForTable' => $queryBuilder]
+        );
+
+        $settings = [
+            'schemaFiles' => [],
+            'tableMapping' => ['experts' => 'tx_academy_domain_model_persons'],
+        ];
+
+        $this->cache = $this->makeEmpty(
+            FrontendInterface::class,
+            ['has' => false, 'set' => function () {}]
+        );
+
+        $builtSchema = \GraphQL\Utils\BuildSchema::build(
+            \GraphQL\Language\Parser::parse($schema)
+        );
+
+        $this->service = $this->construct(
+            ResolverService::class,
+            $this->getServiceConstructorArgs($comparator),
+            ['getSchema' => $builtSchema]
+        );
+        $this->service->configure($settings);
+
+        // No sortBy argument — original DB order preserved
+        $queryJson = json_encode([
+            'query' => '{ experts { familyName givenName } }',
+        ]);
+
+        $result = $this->service->process($queryJson);
+        $decoded = json_decode($result, true);
+
+        verify($decoded['data']['experts'][0]['familyName'])->equals('Zimmermann');
+        verify($decoded['data']['experts'][1]['familyName'])->equals('Albrecht');
+    }
+
+    // =========================================================================
     // Pagination Helper Methods
     // =========================================================================
 
@@ -1646,12 +1889,13 @@ GRAPHQL;
         $this->service->configure(['schemaFiles' => [], 'tableMapping' => []]);
     }
 
-    private function getServiceConstructorArgs(): array
+    private function getServiceConstructorArgs(?ComparatorInterface $comparator = null): array
     {
         return [
             $this->connectionPool,
             $this->cache,
             $this->logger,
+            $comparator,
         ];
     }
 

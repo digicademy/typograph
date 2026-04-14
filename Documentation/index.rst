@@ -59,6 +59,10 @@ you want to learn more about GraphQL or need a refresher, have a look at the
 
         Using paginated queries.
 
+    ..  card:: :ref:`Sorting <sorting>`
+
+        Custom sorting of query results.
+
     ..  card:: :ref:`Example setup <example>`
 
         Set up example tables, schemas and configuration with a CLI command.
@@ -73,5 +77,6 @@ you want to learn more about GraphQL or need a refresher, have a look at the
     installation/index
     configuration/index
     pagination/index
+    sorting/index
     error-handling/index
     example/index
