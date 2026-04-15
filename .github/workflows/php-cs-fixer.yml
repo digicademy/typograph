@@ -20,7 +20,7 @@ jobs:
           php-version: '8.4'
 
       - name: Install dependencies
-        run: composer install --no-interaction --prefer-dist --no-scripts
+        run: composer install --no-interaction --prefer-dist --no-scripts --no-plugins
 
       - name: Run PHP CS Fixer
         run: vendor/bin/php-cs-fixer fix
