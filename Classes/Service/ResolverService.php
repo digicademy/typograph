@@ -26,6 +26,7 @@
 
 namespace Digicademy\TypoGraph\Service;
 
+use Digicademy\TypoGraph\Comparator\ComparatorInterface;
 use GraphQL\Executor\ExecutionResult;
 use GraphQL\GraphQL;
 use GraphQL\Language\AST\DocumentNode;
@@ -39,7 +40,6 @@ use GraphQL\Type\Definition\{
 use GraphQL\Type\Schema;
 use GraphQL\Utils\BuildSchema;
 use GraphQL\Validator\DocumentValidator;
-use Digicademy\TypoGraph\Comparator\ComparatorInterface;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Core\Environment;
