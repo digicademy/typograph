@@ -218,7 +218,7 @@ class ResolverService
     {
         $normalized = [];
         foreach ($raw as $typeName => $fields) {
-            if (!is_string($typeName) || !is_array($fields)) {
+            if (!is_array($fields)) {
                 continue;
             }
             $perType = [];
@@ -273,7 +273,20 @@ class ResolverService
         }
 
         $query = $input['query'];
-        $variableValues = isset($input['variables']) ? $input['variables'] : null;
+        // `variables` is user-supplied JSON. GraphQL expects a map keyed
+        // by variable name (string); filter out any numeric-keyed entries
+        // that json_decode could produce, both for runtime safety and to
+        // satisfy static analysis (`array<string, mixed>`).
+        $rawVariables = $input['variables'] ?? null;
+        $variableValues = null;
+        if (is_array($rawVariables)) {
+            $variableValues = [];
+            foreach ($rawVariables as $key => $value) {
+                if (is_string($key)) {
+                    $variableValues[$key] = $value;
+                }
+            }
+        }
         $schema = $this->getSchema();
 
         try {
@@ -506,7 +519,12 @@ class ResolverService
                         $pageRecords = array_slice($records, 0, $first);
                         $pageRecords = $this->applySorting($pageRecords, $sortByOverride);
                         $pageRecords = $this->applyFieldTransforms($pageRecords, $info);
-                        $records = array_merge($pageRecords, [end($records)]);
+                        // Preserve the extra lookahead record (used by
+                        // buildConnectionResponse for `hasNextPage`) as an
+                        // array rather than `end()`'s mixed|false, so
+                        // PHPStan can type the merged list correctly.
+                        $lookahead = array_slice($records, -1);
+                        $records = array_merge($pageRecords, $lookahead);
                     } else {
                         $records = $this->applySorting($records, $sortByOverride);
                         $records = $this->applyFieldTransforms($records, $info);
@@ -632,9 +650,6 @@ class ResolverService
 
         $transforms = $this->fieldTransforms[$typeName];
         foreach ($records as $i => $record) {
-            if (!is_array($record)) {
-                continue;
-            }
             foreach ($transforms as $graphqlField => $transformName) {
                 $dbColumn = GeneralUtility::camelCaseToLowerCaseUnderscored($graphqlField);
                 if (!array_key_exists($dbColumn, $record)) {
@@ -715,8 +730,14 @@ class ResolverService
         }
 
         usort($records, function (array $a, array $b) use ($sortField): int {
-            $valA = (string)($a[$sortField] ?? '');
-            $valB = (string)($b[$sortField] ?? '');
+            // Records hold mixed scalars (ints, strings, bool flags, …).
+            // Coerce only what is safely castable to string; fall back to
+            // '' so non-scalar values don't bubble up as PHPStan warnings
+            // or surprising sort order.
+            $rawA = $a[$sortField] ?? null;
+            $rawB = $b[$sortField] ?? null;
+            $valA = is_scalar($rawA) ? (string)$rawA : '';
+            $valB = is_scalar($rawB) ? (string)$rawB : '';
             return $this->comparator->compare($valA, $valB);
         });
 
