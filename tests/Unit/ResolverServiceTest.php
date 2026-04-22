@@ -5,11 +5,14 @@ namespace Tests\Unit;
 use Codeception\Test\Unit;
 use Digicademy\TypoGraph\Comparator\ComparatorInterface;
 use Digicademy\TypoGraph\Service\ResolverService;
+use Digicademy\TypoGraph\Transformer\TransformerInterface;
+use Digicademy\TypoGraph\Transformer\TransformerRegistry;
 use GraphQL\Language\AST\DocumentNode;
 use GraphQL\Type\Definition\ListOfType;
 use GraphQL\Type\Definition\ObjectType;
 use GraphQL\Type\Definition\ResolveInfo;
 use GraphQL\Type\Definition\Type;
+use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Core\ApplicationContext;
@@ -34,6 +37,7 @@ GRAPHQL;
     private ConnectionPool $connectionPool;
     private FrontendInterface $cache;
     private LoggerInterface $logger;
+    private TransformerRegistry $transformerRegistry;
     private ResolverService $service;
     private array $serviceSettings = ['tableMapping' => ['users' => 'fe_users', 'user' => 'fe_users']];
 
@@ -42,6 +46,11 @@ GRAPHQL;
         $this->connectionPool = $this->makeEmpty(ConnectionPool::class);
         $this->cache = $this->makeEmpty(FrontendInterface::class);
         $this->logger = $this->makeEmpty(LoggerInterface::class);
+        // An empty registry is sufficient for resolver tests: no test case
+        // currently exercises the `fieldTransforms` config, so no transformer
+        // names need to resolve. Tests that do exercise transforms can pass
+        // a populated registry via the respective construct helpers.
+        $this->transformerRegistry = new TransformerRegistry([]);
     }
 
     // =========================================================================
@@ -53,7 +62,8 @@ GRAPHQL;
         $service = new ResolverService(
             $this->connectionPool,
             $this->cache,
-            $this->logger
+            $this->logger,
+            $this->transformerRegistry
         );
 
         $service->configure([
@@ -69,7 +79,8 @@ GRAPHQL;
         $service = new ResolverService(
             $this->connectionPool,
             $this->cache,
-            $this->logger
+            $this->logger,
+            $this->transformerRegistry
         );
 
         $service->configure([]);
@@ -1484,6 +1495,7 @@ GRAPHQL;
             $this->connectionPool,
             $this->cache,
             $this->logger,
+            $this->transformerRegistry,
             null
         );
 
@@ -1508,6 +1520,7 @@ GRAPHQL;
             $this->connectionPool,
             $this->cache,
             $this->logger,
+            $this->transformerRegistry,
             $comparator
         );
 
@@ -1536,6 +1549,7 @@ GRAPHQL;
             $this->connectionPool,
             $this->cache,
             $this->logger,
+            $this->transformerRegistry,
             $comparator
         );
 
@@ -1560,6 +1574,7 @@ GRAPHQL;
             $this->connectionPool,
             $this->cache,
             $this->logger,
+            $this->transformerRegistry,
             $comparator
         );
 
@@ -1579,6 +1594,7 @@ GRAPHQL;
             $this->connectionPool,
             $this->cache,
             $this->logger,
+            $this->transformerRegistry,
             $comparator
         );
 
@@ -1799,6 +1815,222 @@ GRAPHQL;
     }
 
     // =========================================================================
+    // Field Transforms
+    // =========================================================================
+
+    public function testApplyFieldTransformsReturnsRecordsUnchangedWhenNoTransformsConfigured(): void
+    {
+        $service = $this->makeServiceWithFieldTransforms(
+            new TransformerRegistry([]),
+            []
+        );
+        $this->setCurrentRequestOn($service);
+
+        $records = [['uid' => 1, 'bodytext' => 'raw']];
+        $info = $this->makeListResolveInfo('Content');
+
+        $result = $this->invokePrivateMethod($service, 'applyFieldTransforms', [$records, $info]);
+
+        verify($result)->equals($records);
+    }
+
+    public function testApplyFieldTransformsReturnsRecordsUnchangedWhenNoCurrentRequest(): void
+    {
+        $recorder = $this->recordingTransformer();
+        $service = $this->makeServiceWithFieldTransforms(
+            new TransformerRegistry(['record' => $recorder]),
+            ['Content' => ['bodytext' => 'record']]
+        );
+        // No setCurrentRequestOn() — the service has a null request set.
+
+        $records = [['uid' => 1, 'bodytext' => 'raw']];
+        $result = $this->invokePrivateMethod(
+            $service,
+            'applyFieldTransforms',
+            [$records, $this->makeListResolveInfo('Content')]
+        );
+
+        verify($result)->equals($records);
+        verify($recorder->calls)->equals([]);
+    }
+
+    public function testApplyFieldTransformsAppliesConfiguredTransformToMatchingField(): void
+    {
+        $recorder = $this->recordingTransformer();
+        $service = $this->makeServiceWithFieldTransforms(
+            new TransformerRegistry(['record' => $recorder]),
+            ['Content' => ['bodytext' => 'record']]
+        );
+        $this->setCurrentRequestOn($service);
+
+        $records = [
+            ['uid' => 1, 'bodytext' => 'raw one'],
+            ['uid' => 2, 'bodytext' => 'raw two'],
+        ];
+        $result = $this->invokePrivateMethod(
+            $service,
+            'applyFieldTransforms',
+            [$records, $this->makeListResolveInfo('Content')]
+        );
+
+        verify($recorder->calls)->equals(['raw one', 'raw two']);
+        verify($result[0]['bodytext'])->equals('TRANSFORMED[raw one]');
+        verify($result[1]['bodytext'])->equals('TRANSFORMED[raw two]');
+        verify($result[0]['uid'])->equals(1);
+    }
+
+    public function testApplyFieldTransformsMapsCamelCaseFieldToSnakeCaseColumn(): void
+    {
+        $recorder = $this->recordingTransformer();
+        $service = $this->makeServiceWithFieldTransforms(
+            new TransformerRegistry(['record' => $recorder]),
+            ['Content' => ['bodyText' => 'record']]
+        );
+        $this->setCurrentRequestOn($service);
+
+        // Row comes back from DB keyed by snake_case, matching what the
+        // resolver's SELECT uses. The transform must find this column
+        // even though the config names the field in camelCase.
+        $records = [['uid' => 1, 'body_text' => 'raw']];
+        $result = $this->invokePrivateMethod(
+            $service,
+            'applyFieldTransforms',
+            [$records, $this->makeListResolveInfo('Content')]
+        );
+
+        verify($recorder->calls)->equals(['raw']);
+        verify($result[0]['body_text'])->equals('TRANSFORMED[raw]');
+    }
+
+    public function testApplyFieldTransformsSkipsRecordsOfUnrelatedType(): void
+    {
+        $recorder = $this->recordingTransformer();
+        $service = $this->makeServiceWithFieldTransforms(
+            new TransformerRegistry(['record' => $recorder]),
+            ['Content' => ['bodytext' => 'record']]
+        );
+        $this->setCurrentRequestOn($service);
+
+        $records = [['uid' => 1, 'bodytext' => 'raw']];
+        $result = $this->invokePrivateMethod(
+            $service,
+            'applyFieldTransforms',
+            [$records, $this->makeListResolveInfo('OtherType')]
+        );
+
+        verify($recorder->calls)->equals([]);
+        verify($result)->equals($records);
+    }
+
+    public function testApplyFieldTransformsWarnsWhenTransformerNotRegistered(): void
+    {
+        $warned = false;
+        $this->logger = $this->makeEmpty(LoggerInterface::class, [
+            'warning' => function () use (&$warned): void {
+                $warned = true;
+            },
+        ]);
+
+        $service = $this->makeServiceWithFieldTransforms(
+            new TransformerRegistry([]), // empty — "record" is not registered
+            ['Content' => ['bodytext' => 'record']]
+        );
+        $this->setCurrentRequestOn($service);
+
+        $records = [['uid' => 1, 'bodytext' => 'raw']];
+        $result = $this->invokePrivateMethod(
+            $service,
+            'applyFieldTransforms',
+            [$records, $this->makeListResolveInfo('Content')]
+        );
+
+        verify($warned)->true();
+        verify($result)->equals($records);
+    }
+
+    public function testApplyFieldTransformsLogsErrorAndKeepsValueWhenTransformerThrows(): void
+    {
+        $errored = false;
+        $this->logger = $this->makeEmpty(LoggerInterface::class, [
+            'error' => function () use (&$errored): void {
+                $errored = true;
+            },
+        ]);
+
+        $throwing = new class implements TransformerInterface {
+            public function transform(mixed $value, ServerRequestInterface $request): mixed
+            {
+                throw new \RuntimeException('boom');
+            }
+        };
+
+        $service = $this->makeServiceWithFieldTransforms(
+            new TransformerRegistry(['explode' => $throwing]),
+            ['Content' => ['bodytext' => 'explode']]
+        );
+        $this->setCurrentRequestOn($service);
+
+        $records = [['uid' => 1, 'bodytext' => 'raw']];
+        $result = $this->invokePrivateMethod(
+            $service,
+            'applyFieldTransforms',
+            [$records, $this->makeListResolveInfo('Content')]
+        );
+
+        verify($errored)->true();
+        verify($result[0]['bodytext'])->equals('raw');
+    }
+
+    // =========================================================================
+    // resolveEntityTypeName
+    // =========================================================================
+
+    public function testResolveEntityTypeNameReturnsNameForListOfObject(): void
+    {
+        $service = $this->createService();
+        $info = $this->makeListResolveInfo('Foo');
+
+        $typeName = $this->invokePrivateMethod($service, 'resolveEntityTypeName', [$info]);
+
+        verify($typeName)->equals('Foo');
+    }
+
+    public function testResolveEntityTypeNameReturnsNodeNameForConnectionType(): void
+    {
+        $schema = \GraphQL\Utils\BuildSchema::build(\GraphQL\Language\Parser::parse(<<<'GRAPHQL'
+type Query { foos: FooConnection }
+type Foo { id: Int }
+type FooConnection { edges: [FooEdge!]! pageInfo: PageInfo! }
+type FooEdge { cursor: String! node: Foo! }
+type PageInfo { hasNextPage: Boolean! }
+GRAPHQL
+        ));
+        $returnType = $schema->getQueryType()->getField('foos')->getType();
+        $info = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => $returnType,
+            'fieldName' => 'foos',
+        ]);
+
+        $service = $this->createService();
+        $typeName = $this->invokePrivateMethod($service, 'resolveEntityTypeName', [$info]);
+
+        verify($typeName)->equals('Foo');
+    }
+
+    public function testResolveEntityTypeNameReturnsNullForScalarReturnType(): void
+    {
+        $service = $this->createService();
+        $info = $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => Type::string(),
+            'fieldName' => 'name',
+        ]);
+
+        $typeName = $this->invokePrivateMethod($service, 'resolveEntityTypeName', [$info]);
+
+        verify($typeName)->null();
+    }
+
+    // =========================================================================
     // Helper Methods
     // =========================================================================
 
@@ -1873,7 +2105,8 @@ GRAPHQL;
         $service = new ResolverService(
             $this->connectionPool,
             $this->cache,
-            $this->logger
+            $this->logger,
+            $this->transformerRegistry
         );
         $service->configure($this->serviceSettings);
         return $service;
@@ -1895,6 +2128,7 @@ GRAPHQL;
             $this->connectionPool,
             $this->cache,
             $this->logger,
+            $this->transformerRegistry,
             $comparator,
         ];
     }
@@ -1987,5 +2221,81 @@ GRAPHQL;
         $method = $reflection->getMethod($methodName);
         $method->setAccessible(true);
         return $method->invokeArgs($object, $parameters);
+    }
+
+    /**
+     * Build a ResolverService pre-configured with a specific registry and
+     * `fieldTransforms` map. Bypasses the shared `$this->transformerRegistry`
+     * so individual tests can provide their own registry population.
+     *
+     * @param array<string, array<string, string>> $fieldTransforms
+     */
+    private function makeServiceWithFieldTransforms(
+        TransformerRegistry $registry,
+        array $fieldTransforms
+    ): ResolverService {
+        $service = new ResolverService(
+            $this->connectionPool,
+            $this->cache,
+            $this->logger,
+            $registry,
+            null
+        );
+        $service->configure([
+            'tableMapping' => [],
+            'fieldTransforms' => $fieldTransforms,
+        ]);
+        return $service;
+    }
+
+    /**
+     * Inject a mock PSR-7 request into the resolver's protected
+     * `$currentRequest` slot. Mirrors what `process()` does at runtime,
+     * without actually running a GraphQL operation.
+     */
+    private function setCurrentRequestOn(ResolverService $service): void
+    {
+        $prop = (new \ReflectionClass($service))->getProperty('currentRequest');
+        $prop->setAccessible(true);
+        $prop->setValue(
+            $service,
+            $this->makeEmpty(ServerRequestInterface::class)
+        );
+    }
+
+    /**
+     * Build a ResolveInfo whose `returnType` is a `List<NamedType>` and
+     * whose `fieldName` is the same as the named type, which is what the
+     * resolver sees for root list queries.
+     */
+    private function makeListResolveInfo(string $typeName): ResolveInfo
+    {
+        $objectType = new ObjectType([
+            'name' => $typeName,
+            'fields' => ['uid' => Type::int()],
+        ]);
+        return $this->makeEmpty(ResolveInfo::class, [
+            'returnType' => new ListOfType($objectType),
+            'fieldName' => strtolower($typeName) . 's',
+        ]);
+    }
+
+    /**
+     * Build an anonymous transformer that records every value it sees and
+     * returns a recognisable marker string. Useful for asserting both that
+     * a transform ran and that the result made it into the record.
+     */
+    private function recordingTransformer(): TransformerInterface
+    {
+        return new class implements TransformerInterface {
+            /** @var list<mixed> */
+            public array $calls = [];
+
+            public function transform(mixed $value, ServerRequestInterface $request): mixed
+            {
+                $this->calls[] = $value;
+                return 'TRANSFORMED[' . (is_string($value) ? $value : gettype($value)) . ']';
+            }
+        };
     }
 }
