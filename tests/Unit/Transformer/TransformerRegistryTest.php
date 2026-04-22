@@ -53,7 +53,7 @@ class TransformerRegistryTest extends Unit
      */
     private function stubTransformer(): TransformerInterface
     {
-        return new class implements TransformerInterface {
+        return new class () implements TransformerInterface {
             public function transform(mixed $value, ServerRequestInterface $request): mixed
             {
                 return $value;
