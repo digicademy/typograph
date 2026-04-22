@@ -19,3 +19,12 @@ services:
       $cache: '@cache.typograph_schema_cache'
       $comparator: '@?Digicademy\TypoGraph\Comparator\ComparatorInterface'
 
+  # Registry of post-fetch value transformers exposed via site config
+  # under `typograph.fieldTransforms`. Add further transformers here
+  # (keyed by the short name used in site config) to extend the set of
+  # available transforms.
+  Digicademy\TypoGraph\Transformer\TransformerRegistry:
+    arguments:
+      $transformers:
+        typolinks: '@Digicademy\TypoGraph\Transformer\TypolinksTransformer'
+

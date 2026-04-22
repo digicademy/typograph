@@ -27,6 +27,7 @@
 namespace Digicademy\TypoGraph\Service;
 
 use Digicademy\TypoGraph\Comparator\ComparatorInterface;
+use Digicademy\TypoGraph\Transformer\TransformerRegistry;
 use GraphQL\Executor\ExecutionResult;
 use GraphQL\GraphQL;
 use GraphQL\Language\AST\DocumentNode;
@@ -40,6 +41,7 @@ use GraphQL\Type\Definition\{
 use GraphQL\Type\Schema;
 use GraphQL\Utils\BuildSchema;
 use GraphQL\Validator\DocumentValidator;
+use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Core\Environment;
@@ -78,6 +80,23 @@ class ResolverService
     protected array $relations;
 
     /**
+     * Configured post-fetch field transforms, keyed by GraphQL type name
+     * and then by GraphQL field name. The value is the short transform
+     * name used to look an implementation up in {@see TransformerRegistry}.
+     *
+     * @var array<string, array<string, string>>
+     */
+    protected array $fieldTransforms;
+
+    /**
+     * The PSR-7 request currently being processed. Set by {@see process()}
+     * and cleared on return so that transformers can read request
+     * attributes (Site, language, routing) via the registry's contract
+     * without having to pipe the request through every resolver path.
+     */
+    protected ?ServerRequestInterface $currentRequest = null;
+
+    /**
      * @var Schema|null
      */
     protected ?Schema $schema = null;
@@ -102,11 +121,13 @@ class ResolverService
         private readonly ConnectionPool $connectionPool,
         private readonly FrontendInterface $cache,
         private readonly LoggerInterface $logger,
+        private readonly TransformerRegistry $transformerRegistry,
         private readonly ?ComparatorInterface $comparator = null
     ) {
         $this->schemaFiles = [];
         $this->tableMapping = [];
         $this->relations = [];
+        $this->fieldTransforms = [];
         $this->defaultLimit = 20;
         $this->maxLimit = 100;
     }
@@ -130,6 +151,11 @@ class ResolverService
 
         $relations = $settings['relations'] ?? [];
         $this->relations = $this->flattenRelationsConfig(is_array($relations) ? $relations : []);
+
+        $fieldTransforms = $settings['fieldTransforms'] ?? [];
+        $this->fieldTransforms = $this->normalizeFieldTransformsConfig(
+            is_array($fieldTransforms) ? $fieldTransforms : []
+        );
 
         $pagination = $settings['pagination'] ?? [];
         $pagination = is_array($pagination) ? $pagination : [];
@@ -178,10 +204,66 @@ class ResolverService
     }
 
     /**
-     * @param  string      $json
+     * Validate and normalize the raw `fieldTransforms` subtree coming
+     * from site configuration into a strongly-typed two-level map
+     * (`TypeName -> FieldName -> transformName`). Invalid or empty
+     * entries are silently dropped — configuration errors surface later
+     * as "transformer not registered" warnings when the field is
+     * actually requested.
+     *
+     * @param array<string, mixed> $raw
+     * @return array<string, array<string, string>>
+     */
+    protected function normalizeFieldTransformsConfig(array $raw): array
+    {
+        $normalized = [];
+        foreach ($raw as $typeName => $fields) {
+            if (!is_string($typeName) || !is_array($fields)) {
+                continue;
+            }
+            $perType = [];
+            foreach ($fields as $fieldName => $transformName) {
+                if (
+                    !is_string($fieldName)
+                    || !is_string($transformName)
+                    || $transformName === ''
+                ) {
+                    continue;
+                }
+                $perType[$fieldName] = $transformName;
+            }
+            if ($perType !== []) {
+                $normalized[$typeName] = $perType;
+            }
+        }
+        return $normalized;
+    }
+
+    /**
+     * @param  string $json
+     * @param  ServerRequestInterface|null $request The current PSR-7
+     *     request. Optional for backwards compatibility: when omitted,
+     *     post-fetch transforms are skipped because most of them rely
+     *     on request-attached attributes (Site, language, routing).
      * @return string|null
      */
-    public function process(string $json): ?string
+    public function process(string $json, ?ServerRequestInterface $request = null): ?string
+    {
+        $this->currentRequest = $request;
+
+        try {
+            return $this->processInternal($json);
+        } finally {
+            $this->currentRequest = null;
+        }
+    }
+
+    /**
+     * Body of {@see process()}, extracted so the outer method can own
+     * the `$currentRequest` lifecycle via try/finally without wrapping
+     * the whole execution block in an extra level of indentation.
+     */
+    protected function processInternal(string $json): ?string
     {
         $input = json_decode($json, true);
 
@@ -423,9 +505,11 @@ class ResolverService
                     if (count($records) > $first) {
                         $pageRecords = array_slice($records, 0, $first);
                         $pageRecords = $this->applySorting($pageRecords, $sortByOverride);
+                        $pageRecords = $this->applyFieldTransforms($pageRecords, $info);
                         $records = array_merge($pageRecords, [end($records)]);
                     } else {
                         $records = $this->applySorting($records, $sortByOverride);
+                        $records = $this->applyFieldTransforms($records, $info);
                     }
 
                     // Determine totalCount only if requested in selection
@@ -469,11 +553,17 @@ class ResolverService
                         ->executeQuery()
                         ->fetchAllAssociative();
                     $result = $this->applySorting($result, $sortByOverride);
+                    $result = $this->applyFieldTransforms($result, $info);
                 } else {
                     $fetched = $queryBuilder
                         ->executeQuery()
                         ->fetchAssociative();
-                    $result = $fetched !== false ? $fetched : null;
+                    if ($fetched !== false) {
+                        $transformed = $this->applyFieldTransforms([$fetched], $info);
+                        $result = $transformed[0] ?? $fetched;
+                    } else {
+                        $result = null;
+                    }
                 }
             } catch (\Exception $e) {
                 $this->logger->error($e->getMessage());
@@ -506,6 +596,102 @@ class ResolverService
         }
         $snakeCaseFieldName = GeneralUtility::camelCaseToLowerCaseUnderscored($fieldName);
         return $root[$snakeCaseFieldName] ?? null;
+    }
+
+    /**
+     * Apply configured post-fetch transforms to a list of records, based
+     * on the GraphQL entity type implied by `$info->returnType`.
+     *
+     * The entity type is derived by unwrapping NonNull/ListOfType
+     * wrappers on the return type and, for Relay-style Connection types,
+     * stepping into `edges.node` via {@see getNodeTypeFromConnection()}.
+     * Transforms are applied in place against the DB column name derived
+     * from the configured GraphQL field name (via
+     * `camelCaseToLowerCaseUnderscored`), so config consistently uses
+     * the GraphQL naming.
+     *
+     * Records are returned unchanged when no transforms are configured
+     * for the type, when no request is attached (see {@see process()}),
+     * or when the transformer cannot be resolved. Exceptions thrown by
+     * individual transformers are logged rather than propagated, so one
+     * misbehaving transformer cannot abort an entire response.
+     *
+     * @param array<array<string, mixed>> $records
+     * @return array<array<string, mixed>>
+     */
+    protected function applyFieldTransforms(array $records, ResolveInfo $info): array
+    {
+        if ($this->currentRequest === null || $records === [] || $this->fieldTransforms === []) {
+            return $records;
+        }
+
+        $typeName = $this->resolveEntityTypeName($info);
+        if ($typeName === null || !isset($this->fieldTransforms[$typeName])) {
+            return $records;
+        }
+
+        $transforms = $this->fieldTransforms[$typeName];
+        foreach ($records as $i => $record) {
+            if (!is_array($record)) {
+                continue;
+            }
+            foreach ($transforms as $graphqlField => $transformName) {
+                $dbColumn = GeneralUtility::camelCaseToLowerCaseUnderscored($graphqlField);
+                if (!array_key_exists($dbColumn, $record)) {
+                    continue;
+                }
+
+                $transformer = $this->transformerRegistry->get($transformName);
+                if ($transformer === null) {
+                    $this->logger->warning(sprintf(
+                        'No transformer registered under "%s" (configured for %s.%s). '
+                        . 'Register it in Configuration/Services.yaml under TransformerRegistry.',
+                        $transformName,
+                        $typeName,
+                        $graphqlField
+                    ));
+                    continue;
+                }
+
+                try {
+                    $records[$i][$dbColumn] = $transformer->transform(
+                        $record[$dbColumn],
+                        $this->currentRequest
+                    );
+                } catch (\Throwable $e) {
+                    $this->logger->error(sprintf(
+                        'Transformer "%s" failed on %s.%s: %s',
+                        $transformName,
+                        $typeName,
+                        $graphqlField,
+                        $e->getMessage()
+                    ));
+                }
+            }
+        }
+
+        return $records;
+    }
+
+    /**
+     * Return the GraphQL object type name that `$info->returnType` ultimately
+     * points to, unwrapping NonNull/ListOfType wrappers and stepping into
+     * `edges.node` for Relay Connection types. Returns `null` when the
+     * return type does not resolve to a named object type.
+     */
+    protected function resolveEntityTypeName(ResolveInfo $info): ?string
+    {
+        $type = $info->returnType;
+        while ($type instanceof NonNull || $type instanceof ListOfType) {
+            $type = $type->getWrappedType();
+        }
+        if (!($type instanceof ObjectType)) {
+            return null;
+        }
+        if (str_ends_with($type->name, 'Connection')) {
+            return $this->getNodeTypeFromConnection($info)?->name;
+        }
+        return $type->name;
     }
 
     /**
@@ -683,6 +869,14 @@ class ResolverService
                 ->executeQuery()
                 ->fetchAssociative();
 
+            if ($result !== false) {
+                // Apply field transforms before caching so that subsequent
+                // cache hits return the already-transformed record without
+                // re-running potentially expensive transformers.
+                $transformed = $this->applyFieldTransforms([$result], $info);
+                $result = $transformed[0] ?? $result;
+            }
+
             $this->batchCache[$cacheKey] = $result !== false ? $result : null;
         }
 
@@ -781,6 +975,10 @@ class ResolverService
             ->executeQuery()
             ->fetchAllAssociative();
 
+        // Apply field transforms before caching so that the cached
+        // records match what is returned to the resolver.
+        $records = $this->applyFieldTransforms($records, $info);
+
         // Cache individual records for potential reuse
         foreach ($records as $record) {
             /** @var int|string $uid */
@@ -827,6 +1025,11 @@ class ResolverService
                 ->where($queryBuilder->expr()->in('uid', $uncachedUids))
                 ->executeQuery()
                 ->fetchAllAssociative();
+
+            // Apply field transforms before caching so that the cached
+            // records match what is returned to the resolver and future
+            // cache hits do not re-run transformers.
+            $fetchedRecords = $this->applyFieldTransforms($fetchedRecords, $info);
 
             // Cache and index by UID
             foreach ($fetchedRecords as $record) {

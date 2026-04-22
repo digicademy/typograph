@@ -71,7 +71,7 @@ class ApiMiddleware implements MiddlewareInterface
                 : [];
             $this->resolver->configure($typographConfig);
 
-            $output = $this->resolver->process($request->getBody()->getContents());
+            $output = $this->resolver->process($request->getBody()->getContents(), $request);
             return $this->responseFactory->createResponse()
                 ->withHeader('Content-Type', 'application/graphql-response+json; charset=utf-8')
                 ->withBody($this->streamFactory->createStream((string)$output));

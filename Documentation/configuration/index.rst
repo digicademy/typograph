@@ -51,9 +51,15 @@ However, most of the time you will want the option to query relations between
 entries from different tables, or data types. For this to happen, you need to
 configure the relations between different tables for TypoGraph.
 
+You may also need to post-process certain field values before they are
+returned to the client — for example, to resolve TYPO3 link-handling URIs
+(`t3://...`) inside RTE-managed HTML fields. This is done via field value
+transforms.
+
 .. toctree::
    :maxdepth: 5
    :titlesonly:
    :glob:
 
    relations/index
+   field-transforms/index
