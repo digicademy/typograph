@@ -1957,7 +1957,7 @@ GRAPHQL;
             },
         ]);
 
-        $throwing = new class implements TransformerInterface {
+        $throwing = new class () implements TransformerInterface {
             public function transform(mixed $value, ServerRequestInterface $request): mixed
             {
                 throw new \RuntimeException('boom');
@@ -1997,7 +1997,8 @@ GRAPHQL;
 
     public function testResolveEntityTypeNameReturnsNodeNameForConnectionType(): void
     {
-        $schema = \GraphQL\Utils\BuildSchema::build(\GraphQL\Language\Parser::parse(<<<'GRAPHQL'
+        $schema = \GraphQL\Utils\BuildSchema::build(\GraphQL\Language\Parser::parse(
+            <<<'GRAPHQL'
 type Query { foos: FooConnection }
 type Foo { id: Int }
 type FooConnection { edges: [FooEdge!]! pageInfo: PageInfo! }
@@ -2287,7 +2288,7 @@ GRAPHQL
      */
     private function recordingTransformer(): TransformerInterface
     {
-        return new class implements TransformerInterface {
+        return new class () implements TransformerInterface {
             /** @var list<mixed> */
             public array $calls = [];
 

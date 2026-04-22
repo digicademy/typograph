@@ -780,8 +780,8 @@ class ResolverService
         // Check if relation is configured
         if (!isset($this->relations[$relationKey])) {
             $this->logger->warning(
-                "Relation {$relationKey} is not configured in TypoScript. " .
-                "Please add configuration under plugin.tx_typograph.settings.relations.{$relationKey}"
+                "Relation {$relationKey} is not configured in TypoScript. "
+                . "Please add configuration under plugin.tx_typograph.settings.relations.{$relationKey}"
             );
             return null;
         }
