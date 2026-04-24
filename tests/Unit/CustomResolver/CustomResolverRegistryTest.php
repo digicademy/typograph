@@ -25,20 +25,20 @@ final class CustomResolverRegistryTest extends Unit
         $beta = $this->makeResolver('betaField');
         $registry = new CustomResolverRegistry([$alpha, $beta]);
 
-        $this->assertSame($alpha, $registry->get('alphaField'));
-        $this->assertSame($beta, $registry->get('betaField'));
+        self::assertSame($alpha, $registry->get('alphaField'));
+        self::assertSame($beta, $registry->get('betaField'));
     }
 
     public function testGetReturnsNullForUnknownField(): void
     {
         $registry = new CustomResolverRegistry([]);
-        $this->assertNull($registry->get('anythingUnregistered'));
+        self::assertNull($registry->get('anythingUnregistered'));
     }
 
     public function testAcceptsEmptyIterable(): void
     {
         $registry = new CustomResolverRegistry();
-        $this->assertNull($registry->get('anything'));
+        self::assertNull($registry->get('anything'));
     }
 
     public function testLastRegisteredWinsOnFieldNameCollision(): void
@@ -50,12 +50,12 @@ final class CustomResolverRegistryTest extends Unit
         $second = $this->makeResolver('clash', 'second');
         $registry = new CustomResolverRegistry([$first, $second]);
 
-        $this->assertSame($second, $registry->get('clash'));
+        self::assertSame($second, $registry->get('clash'));
     }
 
     private function makeResolver(string $fieldName, string $label = ''): CustomResolverInterface
     {
-        return new class($fieldName, $label) implements CustomResolverInterface {
+        return new class ($fieldName, $label) implements CustomResolverInterface {
             public function __construct(
                 private readonly string $fieldName,
                 private readonly string $label,
