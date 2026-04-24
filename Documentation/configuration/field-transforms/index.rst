@@ -44,7 +44,7 @@ else in TypoGraph.
 
 ..  _h2-configuration-field-transforms-built-in:
 
-Built-in Transforms
+Built-In Transforms
 ===================
 
 ..  _h3-configuration-field-transforms-typolinks:

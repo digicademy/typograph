@@ -4,9 +4,20 @@ services:
     autoconfigure: true
     public: false
 
+  # Auto-tag every CustomResolverInterface implementation registered in
+  # any extension so the CustomResolverRegistry below picks them up
+  # through its tagged_iterator argument without explicit wiring.
+  _instanceof:
+    Digicademy\TypoGraph\CustomResolver\CustomResolverInterface:
+      tags: ['typograph.custom_resolver']
+
   # Where are all our namespaced classes located?
   Digicademy\TypoGraph\:
     resource: '../Classes/*'
+
+  Digicademy\TypoGraph\CustomResolver\CustomResolverRegistry:
+    arguments:
+      $resolvers: !tagged_iterator typograph.custom_resolver
 
   # Set up cache for schema data
   cache.typograph_schema_cache:
@@ -18,6 +29,7 @@ services:
     arguments:
       $cache: '@cache.typograph_schema_cache'
       $comparator: '@?Digicademy\TypoGraph\Comparator\ComparatorInterface'
+      $customResolverRegistry: '@Digicademy\TypoGraph\CustomResolver\CustomResolverRegistry'
 
   # Registry of post-fetch value transformers exposed via site config
   # under `typograph.fieldTransforms`. Add further transformers here

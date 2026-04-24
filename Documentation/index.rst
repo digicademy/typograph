@@ -63,6 +63,10 @@ you want to learn more about GraphQL or need a refresher, have a look at the
 
         Custom sorting of query results.
 
+    ..  card:: :ref:`Custom resolvers <custom-resolvers>`
+
+        Root fields that do not fit the default tableMapping dispatch.
+
     ..  card:: :ref:`Example setup <example>`
 
         Set up example tables, schemas and configuration with a CLI command.
@@ -78,5 +82,6 @@ you want to learn more about GraphQL or need a refresher, have a look at the
     configuration/index
     pagination/index
     sorting/index
+    custom-resolvers/index
     error-handling/index
     example/index

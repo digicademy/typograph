@@ -138,7 +138,7 @@ Configure default and maximum page sizes in the site configuration:
 
 ..  _h2-pagination-query:
 
-Querying with Pagination
+Querying With Pagination
 ========================
 
 Using the pagination arguments `first` and `after`, or `last` and `before`

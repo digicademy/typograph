@@ -27,6 +27,7 @@
 namespace Digicademy\TypoGraph\Service;
 
 use Digicademy\TypoGraph\Comparator\ComparatorInterface;
+use Digicademy\TypoGraph\CustomResolver\CustomResolverRegistry;
 use Digicademy\TypoGraph\Transformer\TransformerRegistry;
 use GraphQL\Executor\ExecutionResult;
 use GraphQL\GraphQL;
@@ -122,7 +123,8 @@ class ResolverService
         private readonly FrontendInterface $cache,
         private readonly LoggerInterface $logger,
         private readonly TransformerRegistry $transformerRegistry,
-        private readonly ?ComparatorInterface $comparator = null
+        private readonly ?ComparatorInterface $comparator = null,
+        private readonly ?CustomResolverRegistry $customResolverRegistry = null,
     ) {
         $this->schemaFiles = [];
         $this->tableMapping = [];
@@ -434,6 +436,16 @@ class ResolverService
         // The actual field being resolved comes from $info->fieldName — using
         // $root[0] would always resolve the first root field's table, breaking
         // queries that request multiple root fields simultaneously.
+        //
+        // Custom resolvers (registered via CustomResolverRegistry) take
+        // precedence at the root level, so a consumer extension can expose
+        // a computed root field without bending the tableMapping contract.
+        if (isset($root[0]) && $this->customResolverRegistry !== null) {
+            $custom = $this->customResolverRegistry->get($info->fieldName);
+            if ($custom !== null) {
+                return $custom->resolve($args, $info, $this->currentRequest);
+            }
+        }
         if (isset($root[0]) && in_array($info->fieldName, $rootTables)) {
             $rootTable = $this->tableMapping[$info->fieldName];
             $isConnection = $this->isConnectionType($info);
