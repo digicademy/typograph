@@ -1957,7 +1957,7 @@ GRAPHQL;
             },
         ]);
 
-        $throwing = new class () implements TransformerInterface {
+        $throwing = new class implements TransformerInterface {
             public function transform(mixed $value, ServerRequestInterface $request): mixed
             {
                 throw new \RuntimeException('boom');
@@ -2288,7 +2288,7 @@ GRAPHQL
      */
     private function recordingTransformer(): TransformerInterface
     {
-        return new class () implements TransformerInterface {
+        return new class implements TransformerInterface {
             /** @var list<mixed> */
             public array $calls = [];
 

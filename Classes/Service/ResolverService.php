@@ -66,6 +66,12 @@ class ResolverService
     protected const CACHE_IDENTIFIER = 'typograph_cached_schema';
 
     /**
+     * Reserved argument names that must not be treated as WHERE conditions.
+     * Includes pagination args and the optional sortBy argument.
+     */
+    protected const RESERVED_ARGS = ['first', 'after', 'sortBy'];
+
+    /**
      * @var array<string>
      */
     protected array $schemaFiles;
@@ -111,12 +117,6 @@ class ResolverService
     protected int $defaultLimit;
 
     protected int $maxLimit;
-
-    /**
-     * Reserved argument names that must not be treated as WHERE conditions.
-     * Includes pagination args and the optional sortBy argument.
-     */
-    protected const RESERVED_ARGS = ['first', 'after', 'sortBy'];
 
     public function __construct(
         private readonly ConnectionPool $connectionPool,
