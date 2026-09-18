@@ -1,7 +1,7 @@
 # TypoGraph
 
-![Packagist Downloads](https://img.shields.io/packagist/dt/digicademy/typograph?logo=packagist)
-![GitHub commit activity](https://img.shields.io/github/commit-activity/m/digicademy/typograph?logo=github)
+[![Packagist Downloads](https://img.shields.io/packagist/dt/digicademy/typograph?logo=packagist)](https://packagist.org/packages/digicademy/typograph)
+[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/digicademy/typograph?logo=github)](https://github.com/digicademy/typograph/commits/main/)
 
 TypoGraph is a TYPO3 extension for providing access to TYPO3 database table data via a GraphQL endpoint. Under the bonnet, it uses https://github.com/webonyx/graphql-php.
 
