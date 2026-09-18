@@ -1,5 +1,6 @@
 # TypoGraph
 
+[![TYPO3 versions](https://typo3-badges.dev/badge/typograph/typo3/shields.svg)]((https://extensions.typo3.org/extension/typograph))
 [![Total downloads](https://typo3-badges.dev/badge/typograph/downloads/shields.svg)](https://extensions.typo3.org/extension/typograph)
 [![Packagist Downloads](https://img.shields.io/packagist/dt/digicademy/typograph?logo=packagist)](https://packagist.org/packages/digicademy/typograph)
 [![GitHub commit activity](https://img.shields.io/github/commit-activity/m/digicademy/typograph?logo=github)](https://github.com/digicademy/typograph/commits/main/)
