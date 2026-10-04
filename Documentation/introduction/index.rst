@@ -27,7 +27,7 @@ TypoGraph implements a `DataLoader pattern <https://www.graphql-js.org/docs/n1-d
 * **Field Selection**: Only fields requested in the GraphQL query are fetched from the database
 * **Order Preservation**: Related records are returned in the same order as stored (respects MM table sorting)
 
-For example, querying 100 research disciplines with related entries for experts in these disciplines from a research information database results in only two database queries: one query for all taxonomies and one query for all unique disciplines referenced by those taxonomies.
+For example, assume we have a research information database for research disciplines and research experts (see also `the example setup <./typograph/example/index.html>`_) which also contains a list of different names that can be applied to the same disciplines (i.e., unique research discipline `A` from the `disciplines` table can be, e.g., referred to by the names `A`, `B` and `Z` from the `taxonomies` table). Querying 100 research disciplines with related entries for experts in these disciplines from this database results in only two database queries: one query for all taxonomies and one query for all unique disciplines referenced by those taxonomies.
 
 ..  _h2-origins:
 

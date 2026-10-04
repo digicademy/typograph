@@ -41,7 +41,7 @@ Finally, the command also adds the necessary configuration entries in
 Once the commmand has finished, you need to manually clear the TYPO3 and PHP
 caches via the TYPO3 Backend Maintenance Tool. This is recommended because due
 to your setup (e.g., if you are working with PHP-FPM), OPcache for worker
-threads will not be cleared unless done via the web interface (see, e.g.,
+threads may not be cleared unless done via the web interface (see, e.g.,
 `this discussion on TYPO3 cache flushing via the command line <https://github.com/TYPO3-Console/TYPO3-Console/issues/983#issuecomment-824619309>`_).
 
 Now you can query the GraphQL endpoint available at the path `/graphql` for the
